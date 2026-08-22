@@ -308,7 +308,17 @@ async function main() {
   console.log(`Wrote snapshot to ${OUT_PATH} (${JSON.stringify(snapshot).length} bytes)`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    // withTimeout() abandons slow requests at the promise level but can't
+    // actually cancel rss-parser's underlying HTTP request (it doesn't
+    // expose an AbortSignal). A straggling connection can keep Node's
+    // event loop alive well after our real work is done, so the process
+    // never exits and the Action step hangs even though the file was
+    // already written successfully. Force a clean exit once we're done.
+    process.exit(0);
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
