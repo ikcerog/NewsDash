@@ -10,6 +10,10 @@ A robust, customizable, widgetized news dashboard. 100% free/open sources — pu
 - **Markets Overview** — dense, color-coded table of indices, sector ETFs, commodities, and currencies (via free Stooq quotes).
 - **Stock portfolio** — add symbols, persisted in `localStorage`, with live price/change and a 25-day sparkline.
 - **Gaming section** — Wowhead, Elder Scrolls Online, Reddit gaming communities, IGN, PC Gamer.
+- **Live search** — filters headlines/markets across all widgets as you type (client-side, no network calls).
+- **Significant Earthquakes** — USGS feed with a Leaflet + OpenStreetMap mini-map.
+- **Local Weather Alerts** — enter a US ZIP code (saved to `localStorage`) for active NWS alerts near you (via Zippopotam.us geocoding).
+- **Global Disaster Map** — link-out to RSOE EDIS's live event map (their feed format isn't reachable/documented from this environment, so it's a link rather than embedded data — happy to wire up properly if you can share their feed endpoint).
 - **Deep wire** — Hacker News, Reddit (r/worldnews, r/news, r/politics), ProPublica, Politico, Ars Technica — a `brutalist.report`-style dense link aggregator.
 - **Detroit local** — Free Press, Detroit News, WXYZ, Fox 2, Crain's Detroit.
 - **Light/dark theme toggle**, mobile-responsive layout.
@@ -25,7 +29,7 @@ The frontend in `public/` runs entirely client-side. It fetches RSS/Polymarket/q
 2. In the repo's **Settings → Pages**, set Source to **GitHub Actions**.
 3. The included workflow (`.github/workflows/deploy-pages.yml`) publishes `public/` automatically on every push to `main`.
 
-No server, no build step, no secrets required.
+No server, no build step, no secrets required. The map on the Earthquakes widget loads Leaflet + its CSS from the free unpkg CDN (open source, no key/account needed).
 
 ### Option B — Local Node server (optional)
 

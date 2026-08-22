@@ -5,13 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
 <title>NewsDash</title>
 <link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
   <header class="app-header">
     <div class="brand">
       <span class="brand-mark">◆</span>
       <span class="brand-name">NewsDash</span>
-      <button id="versionChip" class="version-chip" title="View patch notes">v0.2.2</button>
+      <button id="versionChip" class="version-chip" title="View patch notes">v0.2.3</button>
+    </div>
+    <div class="search-wrap">
+      <input type="text" id="globalSearch" class="search-input" placeholder="Filter headlines as you type…" />
     </div>
     <div class="header-actions">
       <button id="addWidgetBtn" class="btn btn-primary">+ Add Widget</button>
@@ -54,7 +58,9 @@
             <option value="markets-overview">Markets Overview</option>
             <option value="wiki-trending">Trending on Wikipedia</option>
             <option value="bonds">Treasury Yields</option>
-            <option value="earthquakes">Significant Earthquakes</option>
+            <option value="earthquakes">Significant Earthquakes (with map)</option>
+            <option value="local-alerts">Local Weather Alerts (by ZIP)</option>
+            <option value="disaster-map">Global Disaster Map (RSOE EDIS link)</option>
           </select>
         </label>
 
@@ -114,6 +120,7 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+  <script src="app.js" defer></script>
 </body>
 </html>

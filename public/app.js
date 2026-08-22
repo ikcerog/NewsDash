@@ -3,8 +3,21 @@
 // from the browser. Feeds/APIs without CORS headers are routed through a
 // free, open CORS proxy (allorigins.win) as a fallback.
 
-const APP_VERSION = '0.2.2';
+const APP_VERSION = '0.2.3';
 const PATCH_NOTES = [
+  {
+    version: '0.2.3',
+    date: '2026-08-22',
+    notes: [
+      'Major performance fix: CORS proxies are now raced in parallel instead of tried one-by-one (was up to 30s/feed on failure).',
+      'Added a response cache (with TTL) so the ticker and widgets stop duplicating identical feed/quote requests.',
+      'Staggered initial widget loads to avoid bursting dozens of simultaneous proxy requests at once.',
+      'Added a live search box in the header that filters headlines/markets across all widgets as you type.',
+      'Added a Leaflet + OpenStreetMap mini-map to the Significant Earthquakes widget.',
+      'Added Local Weather Alerts widget: enter a ZIP code (saved to localStorage) for active NWS alerts near you.',
+      'Added a Global Disaster Map widget linking out to RSOE EDIS (their feed isn\'t publicly documented/reachable from here, so this is a link-out rather than embedded data).',
+    ],
+  },
   {
     version: '0.2.2',
     date: '2026-08-22',
@@ -184,6 +197,8 @@ function loadState() {
 function defaultState() {
   return {
     theme: 'dark',
+    tickerSpeed: 60,
+    localZip: null,
     portfolio: ['AAPL', 'MSFT', 'TSLA', 'NVDA'],
     widgets: [
       { id: uid(), type: 'feed-bundle', config: { bundle: 'tier1' } },
@@ -199,6 +214,8 @@ function defaultState() {
       { id: uid(), type: 'wiki-trending', config: {} },
       { id: uid(), type: 'bonds', config: {} },
       { id: uid(), type: 'earthquakes', config: {} },
+      { id: uid(), type: 'local-alerts', config: {} },
+      { id: uid(), type: 'disaster-map', config: {} },
     ],
   };
 }
@@ -215,30 +232,55 @@ function saveState() {
 // ---------------------------------------------------------------------------
 // Fetch helpers
 // ---------------------------------------------------------------------------
+
+// In-flight/response cache with TTL. This both speeds up repeat loads and
+// de-duplicates identical requests fired close together (e.g. the ticker
+// and a widget both fetching the same feed URL on page load).
+const _respCache = new Map(); // key -> { expires, promise }
+function withCache(key, ttlMs, fn) {
+  const hit = _respCache.get(key);
+  if (hit && hit.expires > Date.now()) return hit.promise;
+  const promise = fn().catch((err) => {
+    _respCache.delete(key);
+    throw err;
+  });
+  _respCache.set(key, { expires: Date.now() + ttlMs, promise });
+  return promise;
+}
+
+async function raceRequests(builders, timeoutMs) {
+  const attempts = builders.map(async (build) => {
+    const res = await fetch(build(), { cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) throw new Error(`Responded ${res.status}`);
+    return res;
+  });
+  try {
+    return await Promise.any(attempts);
+  } catch (aggErr) {
+    const first = aggErr?.errors?.[0];
+    throw first || new Error('All requests failed');
+  }
+}
+
 async function proxiedFetch(url, { direct = true } = {}) {
   if (direct) {
     try {
-      const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
+      const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
       if (res.ok) return res;
     } catch (e) {
       /* fall through to proxy chain */
     }
   }
-  // Cache-bust the *target* URL so the proxy (which often caches by exact
+  // Cache-bust the *target* URL so a proxy (which often caches by exact
   // request URL) doesn't hand back a stale capture of the feed from weeks
-  // or months ago — this was causing headlines to show wildly wrong dates.
+  // or months ago — this was previously causing headlines to show wildly
+  // wrong dates. All proxies are raced in parallel (first success wins)
+  // instead of tried one-by-one, which was the main source of lag.
   const bustUrl = url + (url.includes('?') ? '&' : '?') + '_cb=' + Date.now();
-  let lastErr;
-  for (const buildProxyUrl of CORS_PROXIES) {
-    try {
-      const res = await fetch(buildProxyUrl(bustUrl), { cache: 'no-store', signal: AbortSignal.timeout(10000) });
-      if (res.ok) return res;
-      lastErr = new Error(`Proxy responded ${res.status}`);
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw lastErr || new Error('All CORS proxies failed');
+  return raceRequests(
+    CORS_PROXIES.map((build) => () => build(bustUrl)),
+    9000
+  );
 }
 
 function parseFeedXML(xmlText) {
@@ -267,12 +309,18 @@ function parseFeedXML(xmlText) {
 }
 
 async function fetchFeed(url) {
-  const res = await proxiedFetch(url, { direct: false });
-  const text = await res.text();
-  return parseFeedXML(text);
+  return withCache(`feed:${url}`, 4 * 60 * 1000, async () => {
+    const res = await proxiedFetch(url, { direct: false });
+    const text = await res.text();
+    return parseFeedXML(text);
+  });
 }
 
 async function fetchPolymarket(category) {
+  return withCache(`poly:${category || ''}`, 60 * 1000, () => fetchPolymarketUncached(category));
+}
+
+async function fetchPolymarketUncached(category) {
   const url = new URL('https://gamma-api.polymarket.com/markets');
   url.searchParams.set('closed', 'false');
   url.searchParams.set('limit', '100');
@@ -317,21 +365,24 @@ function normalizeStooqSymbol(s) {
 }
 
 async function fetchQuotesRaw(rawSymbols) {
-  const stooqSymbols = rawSymbols.map(normalizeStooqSymbol).join(',');
-  const url = `https://stooq.com/q/l/?s=${stooqSymbols}&f=sd2t2ohlcv&h&e=csv`;
-  const res = await proxiedFetch(url, { direct: false });
-  const csv = await res.text();
-  const lines = csv.trim().split('\n');
-  const header = lines[0].split(',');
-  return lines.slice(1).map((line) => {
-    const cells = line.split(',');
-    const row = {};
-    header.forEach((h, i) => (row[h.trim()] = cells[i]));
-    return {
-      symbol: (row.Symbol || '').toUpperCase(),
-      close: parseFloat(row.Close),
-      open: parseFloat(row.Open),
-    };
+  const key = `quotes:${[...rawSymbols].sort().join(',')}`;
+  return withCache(key, 60 * 1000, async () => {
+    const stooqSymbols = rawSymbols.map(normalizeStooqSymbol).join(',');
+    const url = `https://stooq.com/q/l/?s=${stooqSymbols}&f=sd2t2ohlcv&h&e=csv`;
+    const res = await proxiedFetch(url, { direct: false });
+    const csv = await res.text();
+    const lines = csv.trim().split('\n');
+    const header = lines[0].split(',');
+    return lines.slice(1).map((line) => {
+      const cells = line.split(',');
+      const row = {};
+      header.forEach((h, i) => (row[h.trim()] = cells[i]));
+      return {
+        symbol: (row.Symbol || '').toUpperCase(),
+        close: parseFloat(row.Close),
+        open: parseFloat(row.Open),
+      };
+    });
   });
 }
 
@@ -341,17 +392,19 @@ async function fetchQuotes(symbols) {
 }
 
 async function fetchSparkline(rawSymbol) {
-  const sym = normalizeStooqSymbol(rawSymbol);
-  const url = `https://stooq.com/q/d/l/?s=${sym}&i=d`;
-  const res = await proxiedFetch(url, { direct: false });
-  const csv = await res.text();
-  const lines = csv.trim().split('\n');
-  if (lines.length < 2) return [];
-  return lines
-    .slice(1)
-    .slice(-25)
-    .map((line) => parseFloat(line.split(',')[4]))
-    .filter((n) => !isNaN(n));
+  return withCache(`spark:${rawSymbol}`, 15 * 60 * 1000, async () => {
+    const sym = normalizeStooqSymbol(rawSymbol);
+    const url = `https://stooq.com/q/d/l/?s=${sym}&i=d`;
+    const res = await proxiedFetch(url, { direct: false });
+    const csv = await res.text();
+    const lines = csv.trim().split('\n');
+    if (lines.length < 2) return [];
+    return lines
+      .slice(1)
+      .slice(-25)
+      .map((line) => parseFloat(line.split(',')[4]))
+      .filter((n) => !isNaN(n));
+  });
 }
 
 function sparklineSVG(values, cls) {
@@ -371,25 +424,27 @@ function sparklineSVG(values, cls) {
 // and CORS-enabled, so it's fetched directly (no proxy needed).
 // ---------------------------------------------------------------------------
 async function fetchWikiTrending() {
-  // Top-articles data for "today" usually isn't published yet; use yesterday.
-  const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${y}/${m}/${day}`;
-  const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
-  if (!res.ok) throw new Error(`Wikimedia ${res.status}`);
-  const data = await res.json();
-  const articles = data.items?.[0]?.articles || [];
-  const skip = new Set(['Main_Page', 'Special:Search', 'Special:SpecialPages']);
-  return articles
-    .filter((a) => !skip.has(a.article) && !a.article.startsWith('Special:'))
-    .slice(0, 15)
-    .map((a) => ({
-      title: a.article.replace(/_/g, ' '),
-      views: a.views,
-      link: `https://en.wikipedia.org/wiki/${a.article}`,
-    }));
+  return withCache('wiki-trending', 30 * 60 * 1000, async () => {
+    // Top-articles data for "today" usually isn't published yet; use yesterday.
+    const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${y}/${m}/${day}`;
+    const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
+    if (!res.ok) throw new Error(`Wikimedia ${res.status}`);
+    const data = await res.json();
+    const articles = data.items?.[0]?.articles || [];
+    const skip = new Set(['Main_Page', 'Special:Search', 'Special:SpecialPages']);
+    return articles
+      .filter((a) => !skip.has(a.article) && !a.article.startsWith('Special:'))
+      .slice(0, 15)
+      .map((a) => ({
+        title: a.article.replace(/_/g, ' '),
+        views: a.views,
+        link: `https://en.wikipedia.org/wiki/${a.article}`,
+      }));
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -397,35 +452,86 @@ async function fetchWikiTrending() {
 // routed through the proxy chain.
 // ---------------------------------------------------------------------------
 async function fetchTreasuryYields() {
-  const year = new Date().getFullYear();
-  const url = `https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/${year}/all?type=daily_treasury_yield_curve&field_tdr_date_value=${year}&page&_format=csv`;
-  const res = await proxiedFetch(url, { direct: false });
-  const csv = await res.text();
-  const lines = csv.trim().split('\n');
-  if (lines.length < 2) return { date: null, rates: [] };
-  const header = lines[0].split(',').map((h) => h.trim().replace(/"/g, ''));
-  const lastLine = lines[lines.length - 1].split(',').map((c) => c.trim().replace(/"/g, ''));
-  const rates = header.slice(1).map((label, i) => ({ label, value: parseFloat(lastLine[i + 1]) })).filter((r) => !isNaN(r.value));
-  return { date: lastLine[0], rates };
+  return withCache('treasury-yields', 60 * 60 * 1000, async () => {
+    const year = new Date().getFullYear();
+    const url = `https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/${year}/all?type=daily_treasury_yield_curve&field_tdr_date_value=${year}&page&_format=csv`;
+    const res = await proxiedFetch(url, { direct: false });
+    const csv = await res.text();
+    const lines = csv.trim().split('\n');
+    if (lines.length < 2) return { date: null, rates: [] };
+    const header = lines[0].split(',').map((h) => h.trim().replace(/"/g, ''));
+    const lastLine = lines[lines.length - 1].split(',').map((c) => c.trim().replace(/"/g, ''));
+    const rates = header.slice(1).map((label, i) => ({ label, value: parseFloat(lastLine[i + 1]) })).filter((r) => !isNaN(r.value));
+    return { date: lastLine[0], rates };
+  });
 }
 
 // ---------------------------------------------------------------------------
 // USGS earthquakes — free, keyless, CORS-enabled GeoJSON feed.
 // ---------------------------------------------------------------------------
 async function fetchEarthquakes() {
-  const url = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson';
-  const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
-  if (!res.ok) throw new Error(`USGS ${res.status}`);
-  const data = await res.json();
-  return (data.features || [])
-    .sort((a, b) => b.properties.time - a.properties.time)
-    .slice(0, 15)
-    .map((f) => ({
-      place: f.properties.place,
-      mag: f.properties.mag,
-      time: f.properties.time,
-      link: f.properties.url,
+  return withCache('earthquakes', 5 * 60 * 1000, async () => {
+    const url = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson';
+    const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
+    if (!res.ok) throw new Error(`USGS ${res.status}`);
+    const data = await res.json();
+    return (data.features || [])
+      .sort((a, b) => b.properties.time - a.properties.time)
+      .slice(0, 20)
+      .map((f) => ({
+        place: f.properties.place,
+        mag: f.properties.mag,
+        time: f.properties.time,
+        link: f.properties.url,
+        lon: f.geometry?.coordinates?.[0],
+        lat: f.geometry?.coordinates?.[1],
+      }));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Local weather alerts by ZIP code — Zippopotam.us (free, keyless zip ->
+// lat/lon geocoder) feeding the National Weather Service's free, keyless,
+// CORS-enabled active-alerts API. NWS only covers US locations.
+// ---------------------------------------------------------------------------
+async function geocodeZip(zip) {
+  return withCache(`geocode:${zip}`, 24 * 60 * 60 * 1000, async () => {
+    const res = await fetch(`https://api.zippopotam.us/us/${encodeURIComponent(zip)}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) throw new Error('ZIP not found');
+    const data = await res.json();
+    const place = data.places?.[0];
+    if (!place) throw new Error('ZIP not found');
+    return {
+      label: `${place['place name']}, ${place['state abbreviation']}`,
+      lat: parseFloat(place.latitude),
+      lon: parseFloat(place.longitude),
+    };
+  });
+}
+
+async function fetchLocalAlerts(zip) {
+  const loc = await geocodeZip(zip);
+  return withCache(`alerts:${zip}`, 3 * 60 * 1000, async () => {
+    const url = `https://api.weather.gov/alerts/active?point=${loc.lat},${loc.lon}`;
+    const res = await fetch(url, {
+      cache: 'no-store',
+      headers: { Accept: 'application/geo+json' },
+      signal: AbortSignal.timeout(9000),
+    });
+    if (!res.ok) throw new Error(`NWS ${res.status}`);
+    const data = await res.json();
+    const alerts = (data.features || []).map((f) => ({
+      event: f.properties.event,
+      headline: f.properties.headline,
+      severity: f.properties.severity,
+      areaDesc: f.properties.areaDesc,
+      link: `https://alerts.weather.gov/search?zone=${f.properties.geocode?.SAME?.[0] || ''}`,
     }));
+    return { location: loc.label, alerts };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -454,6 +560,8 @@ function widgetTitle(widget) {
   if (widget.type === 'wiki-trending') return 'Trending on Wikipedia';
   if (widget.type === 'bonds') return 'Treasury Yields';
   if (widget.type === 'earthquakes') return 'Significant Earthquakes';
+  if (widget.type === 'local-alerts') return 'Local Weather Alerts';
+  if (widget.type === 'disaster-map') return 'Global Disaster Map';
   return 'Widget';
 }
 
@@ -467,15 +575,17 @@ function widgetIcon(widget) {
     'wiki-trending': '📚',
     bonds: '🏛️',
     earthquakes: '🌎',
+    'local-alerts': '🚨',
+    'disaster-map': '🗺️',
   }[widget.type] || '▫';
 }
 
 function renderGrid() {
   grid.innerHTML = '';
-  state.widgets.forEach((widget) => grid.appendChild(renderWidget(widget)));
+  state.widgets.forEach((widget, i) => grid.appendChild(renderWidget(widget, i)));
 }
 
-function renderWidget(widget) {
+function renderWidget(widget, index = 0) {
   const el = document.createElement('section');
   el.className = 'widget';
   el.draggable = true;
@@ -505,7 +615,10 @@ function renderWidget(widget) {
     persistOrder();
   });
 
-  loadWidgetData(widget, el);
+  // Stagger initial loads so a big default grid doesn't fire dozens of
+  // simultaneous proxy requests at once (which was a major source of lag
+  // and induced proxy-side rate limiting).
+  setTimeout(() => loadWidgetData(widget, el), index * 90);
   return el;
 }
 
@@ -614,16 +727,42 @@ async function loadWidgetData(widget, el) {
     } else if (widget.type === 'earthquakes') {
       const quakes = await fetchEarthquakes();
       body.innerHTML = '';
-      if (!quakes.length) body.innerHTML = '<div class="empty-state">No significant earthquakes this week.</div>';
-      quakes.forEach((q) => {
-        const div = document.createElement('div');
-        div.className = 'feed-item';
-        div.innerHTML = `
-          <a href="${escapeAttr(q.link)}" target="_blank" rel="noopener noreferrer">M${q.mag?.toFixed(1) ?? '?'} — ${escapeHtml(q.place)}</a>
-          <div class="meta">${escapeHtml(timeAgo(q.time))}</div>
-        `;
-        body.appendChild(div);
-      });
+      if (!quakes.length) {
+        body.innerHTML = '<div class="empty-state">No significant earthquakes this week.</div>';
+      } else {
+        const mapEl = document.createElement('div');
+        mapEl.className = 'widget-map';
+        body.appendChild(mapEl);
+        initLeafletMap(mapEl, quakes.filter((q) => q.lat != null && q.lon != null).map((q) => ({
+          lat: q.lat,
+          lon: q.lon,
+          label: `M${q.mag?.toFixed(1) ?? '?'} — ${q.place}`,
+          radius: Math.max(4, (q.mag || 1) * 3),
+        })));
+        quakes.forEach((q) => {
+          const div = document.createElement('div');
+          div.className = 'feed-item';
+          div.innerHTML = `
+            <a href="${escapeAttr(q.link)}" target="_blank" rel="noopener noreferrer">M${q.mag?.toFixed(1) ?? '?'} — ${escapeHtml(q.place)}</a>
+            <div class="meta">${escapeHtml(timeAgo(q.time))}</div>
+          `;
+          body.appendChild(div);
+        });
+      }
+    } else if (widget.type === 'local-alerts') {
+      body.innerHTML = renderLocalAlertsShell();
+      wireLocalAlerts(body, widget);
+      if (state.localZip) await refreshLocalAlerts(body, state.localZip);
+    } else if (widget.type === 'disaster-map') {
+      body.innerHTML = `
+        <div class="empty-state" style="text-align:left;">
+          RSOE EDIS tracks earthquakes, storms, floods, and other disaster events worldwide on a live map.
+          <br /><br />
+          <a class="btn btn-primary" href="https://rsoe-edis.org/eventList" target="_blank" rel="noopener noreferrer">Open RSOE EDIS Event Map ↗</a>
+          <br /><br />
+          <span class="meta">Opens in a new tab — their live map isn't embeddable from here.</span>
+        </div>
+      `;
     }
   } catch (err) {
     body.innerHTML = `<div class="error-state">Failed to load: ${escapeHtml(err.message)}</div>`;
@@ -656,6 +795,86 @@ function renderMarketItem(m) {
     <div class="stats">24h volume: $${Math.round(m.volume24hr).toLocaleString()}</div>
   `;
   return div;
+}
+
+// Leaflet (loaded via CDN in index.html) + free OpenStreetMap tiles.
+function initLeafletMap(container, points) {
+  if (typeof L === 'undefined' || !points.length) {
+    container.remove();
+    return;
+  }
+  const map = L.map(container, { scrollWheelZoom: false, attributionControl: true });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 18,
+  }).addTo(map);
+  const markers = points.map((p) =>
+    L.circleMarker([p.lat, p.lon], { radius: p.radius || 6, color: '#ff5c5c', fillColor: '#ff5c5c', fillOpacity: 0.6 })
+      .bindTooltip(p.label)
+      .addTo(map)
+  );
+  if (markers.length === 1) {
+    map.setView([points[0].lat, points[0].lon], 5);
+  } else {
+    map.fitBounds(L.featureGroup(markers).getBounds().pad(0.2));
+  }
+}
+
+function renderLocalAlertsShell() {
+  return `
+    <div class="portfolio-controls">
+      <input type="text" id="zipInput" placeholder="ZIP code (e.g. 48226)" maxlength="5" value="${escapeAttr(state.localZip || '')}" />
+      <button class="btn btn-primary" id="zipSaveBtn">Set</button>
+    </div>
+    <div id="localAlertsBody">
+      ${state.localZip ? '<div class="loading-state">Loading…</div>' : '<div class="empty-state">Enter a US ZIP code to see active weather alerts for your area.</div>'}
+    </div>
+  `;
+}
+
+function wireLocalAlerts(body, widget) {
+  const input = body.querySelector('#zipInput');
+  const saveBtn = body.querySelector('#zipSaveBtn');
+  const save = () => {
+    const zip = input.value.trim();
+    if (!/^\d{5}$/.test(zip)) return;
+    state.localZip = zip;
+    saveState();
+    refreshLocalAlerts(body, zip);
+  };
+  saveBtn.addEventListener('click', save);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') save();
+  });
+}
+
+async function refreshLocalAlerts(body, zip) {
+  const out = body.querySelector('#localAlertsBody');
+  out.innerHTML = '<div class="loading-state">Loading…</div>';
+  try {
+    const { location, alerts } = await fetchLocalAlerts(zip);
+    if (!alerts.length) {
+      out.innerHTML = `<div class="empty-state">No active alerts for ${escapeHtml(location)}.</div>`;
+      return;
+    }
+    out.innerHTML = '';
+    const label = document.createElement('div');
+    label.className = 'meta';
+    label.style.marginBottom = '0.4rem';
+    label.textContent = `Active alerts for ${location}`;
+    out.appendChild(label);
+    alerts.forEach((a) => {
+      const div = document.createElement('div');
+      div.className = 'feed-item';
+      div.innerHTML = `
+        <a href="${escapeAttr(a.link)}" target="_blank" rel="noopener noreferrer">⚠️ ${escapeHtml(a.event)}</a>
+        <div class="meta">${escapeHtml(a.areaDesc || '')}</div>
+      `;
+      out.appendChild(div);
+    });
+  } catch (err) {
+    out.innerHTML = `<div class="error-state">${escapeHtml(err.message)}</div>`;
+  }
 }
 
 async function renderMarketsOverview() {
@@ -935,6 +1154,26 @@ document.getElementById('confirmAddWidget').addEventListener('click', () => {
   saveState();
   renderGrid();
   closeModal('addWidgetModal');
+});
+
+// ---------------------------------------------------------------------------
+// Live search filter — filters already-rendered items across all widgets
+// as you type, no network requests involved.
+// ---------------------------------------------------------------------------
+document.getElementById('globalSearch').addEventListener('input', (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  document.querySelectorAll('.feed-item, .market-item').forEach((el) => {
+    const matches = !q || el.textContent.toLowerCase().includes(q);
+    el.classList.toggle('search-hidden', !matches);
+  });
+  document.querySelectorAll('.feed-source-group').forEach((group) => {
+    if (!q) {
+      group.classList.remove('search-hidden');
+      return;
+    }
+    const anyVisible = [...group.querySelectorAll('.feed-item')].some((el) => !el.classList.contains('search-hidden'));
+    group.classList.toggle('search-hidden', !anyVisible);
+  });
 });
 
 // ---------------------------------------------------------------------------
