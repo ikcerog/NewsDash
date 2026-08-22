@@ -10,6 +10,7 @@ import {
   MARKET_GROUPS,
   FEED_BUNDLES,
   DEFAULT_PORTFOLIO,
+  MOVERS_UNIVERSE,
   WIDGET_CATEGORIES,
   BUNDLE_CATEGORY_OVERRIDES,
   CATEGORY_LABELS,
@@ -17,10 +18,22 @@ import {
   POLYMARKET_CATEGORY_KEYWORDS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.2.11';
+} from './shared-config.js?v=0.2.12';
 
-const APP_VERSION = '0.2.11';
+const APP_VERSION = '0.2.12';
 const PATCH_NOTES = [
+  {
+    version: '0.2.12',
+    date: '2026-08-22',
+    notes: [
+      'Widened the AP/Reuters Google News search window from 1 hour to 6 — 1h rarely had an indexed match for a specific domain, so Breaking News Alerts came back empty most of the time.',
+      'Expanded the default portfolio to a 27-stock Fortune 500 sampler across tech, finance, healthcare, energy, consumer, industrials, telecom, and auto (was 10 mega-cap tech/finance names).',
+      'Added a Big Movers widget: today\'s (or the last available session\'s, on weekends) biggest gainers/losers, computed from quotes already being fetched — no new API needed.',
+      'Added a scroll-to-top button that appears once you scroll past the header.',
+      'Replaced the Global Disaster Map (RSOE EDIS link-out, which couldn\'t be embedded or reached from here) with a real Global Disasters widget backed by ReliefWeb (UN OCHA), a free public API.',
+      'Added Disney coverage to Pop Culture: WDWNT, Disney Food Blog, AllEars.net, plus official Disney and Disney movie/cinema news.',
+    ],
+  },
   {
     version: '0.2.11',
     date: '2026-08-22',
@@ -240,6 +253,7 @@ function defaultState() {
       { id: uid(), type: 'feed-bundle', config: { bundle: 'cloudops' } },
       { id: uid(), type: 'feed-bundle', config: { bundle: 'popculture' } },
       { id: uid(), type: 'cryptrack', config: {} },
+      { id: uid(), type: 'movers', config: {} },
     ],
   };
 }
@@ -780,6 +794,46 @@ async function fetchServiceStatus() {
 }
 
 // ---------------------------------------------------------------------------
+// Big Movers — today's (or the last available session's, when markets are
+// closed) biggest gainers/losers, computed from quotes we already fetch.
+// No dedicated "movers" API needed — Stooq/Yahoo quotes naturally show the
+// last available close on weekends, so this just works then too.
+// ---------------------------------------------------------------------------
+async function fetchMovers() {
+  const rows = await fetchQuotesRaw(MOVERS_UNIVERSE);
+  const bySymbol = Object.fromEntries(rows.map((r) => [r.symbol, r]));
+  const withChange = MOVERS_UNIVERSE.map((sym) => {
+    const q = bySymbol[normalizeStooqSymbol(sym).toUpperCase()];
+    if (!q || isNaN(q.close) || isNaN(q.open) || !q.open) return null;
+    const pct = ((q.close - q.open) / q.open) * 100;
+    return { symbol: sym, close: q.close, pct };
+  }).filter(Boolean);
+  const gainers = [...withChange].sort((a, b) => b.pct - a.pct).slice(0, 5);
+  const losers = [...withChange].sort((a, b) => a.pct - b.pct).slice(0, 5);
+  return { gainers, losers };
+}
+
+// ---------------------------------------------------------------------------
+// Global Disasters — ReliefWeb (UN OCHA), free/keyless, replaces the RSOE
+// EDIS link-out with real pullable data.
+// ---------------------------------------------------------------------------
+async function fetchGlobalDisasters() {
+  if (snapshotFresh() && SNAPSHOT.globalDisasters?.length) return SNAPSHOT.globalDisasters;
+  return withCache('global-disasters', 15 * 60 * 1000, async () => {
+    const url = 'https://api.reliefweb.int/v1/disasters?appname=newsdash&profile=list&preset=latest&limit=20';
+    const res = await proxiedFetch(url, { direct: true });
+    const data = await res.json();
+    return (data.data || []).map((d) => ({
+      name: d.fields?.name,
+      type: d.fields?.type?.map((t) => t.name).join(', '),
+      country: d.fields?.country?.map((c) => c.name).join(', '),
+      date: d.fields?.date?.created,
+      url: d.fields?.url_alias || d.fields?.url || `https://reliefweb.int/disaster/${d.id}`,
+    }));
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
 const grid = document.getElementById('widgetGrid');
@@ -806,10 +860,11 @@ function widgetTitle(widget) {
   if (widget.type === 'bonds') return 'Treasury Yields';
   if (widget.type === 'earthquakes') return 'Significant Earthquakes';
   if (widget.type === 'local-alerts') return 'Local Weather Alerts';
-  if (widget.type === 'disaster-map') return 'Global Disaster Map';
+  if (widget.type === 'disaster-map') return 'Global Disasters';
   if (widget.type === 'us-alerts-map') return 'US Weather Alerts Map';
   if (widget.type === 'service-status') return 'Service Status';
   if (widget.type === 'cryptrack') return 'CrypTrack';
+  if (widget.type === 'movers') return 'Big Movers';
   return 'Widget';
 }
 
@@ -824,10 +879,11 @@ function widgetIcon(widget) {
     bonds: '🏛️',
     earthquakes: '🌎',
     'local-alerts': '🚨',
-    'disaster-map': '🗺️',
+    'disaster-map': '🌍',
     'us-alerts-map': '⚠️',
     'service-status': '🟢',
     cryptrack: '🛸',
+    movers: '🚀',
   }[widget.type] || '▫';
 }
 
@@ -1027,15 +1083,44 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
     wireLocalAlerts(body, widget);
     if (state.localZip) await refreshLocalAlerts(body, state.localZip);
   } else if (widget.type === 'disaster-map') {
-    body.innerHTML = `
-      <div class="empty-state" style="text-align:left;">
-        RSOE EDIS tracks earthquakes, storms, floods, and other disaster events worldwide on a live map.
-        <br /><br />
-        <a class="btn btn-primary" href="https://rsoe-edis.org/eventList" target="_blank" rel="noopener noreferrer">Open RSOE EDIS Event Map ↗</a>
-        <br /><br />
-        <span class="meta">Opens in a new tab — their live map isn't embeddable from here.</span>
-      </div>
-    `;
+    const disasters = (await fetchGlobalDisasters()).slice(0, listLimit);
+    body.innerHTML = '';
+    if (!disasters.length) {
+      body.innerHTML = '<div class="empty-state">No active disasters reported right now.</div>';
+    } else {
+      disasters.forEach((d) => {
+        const div = document.createElement('div');
+        div.className = 'feed-item';
+        div.innerHTML = `
+          <a href="${escapeAttr(d.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(d.name || 'Untitled')}</a>
+          <div class="meta">${escapeHtml(d.country || '')} · ${escapeHtml(d.type || '')}</div>
+        `;
+        body.appendChild(div);
+      });
+    }
+  } else if (widget.type === 'movers') {
+    const { gainers, losers } = await fetchMovers();
+    body.innerHTML = '';
+    if (!gainers.length && !losers.length) {
+      body.innerHTML = '<div class="error-state">Movers unavailable right now.</div>';
+    } else {
+      const section = (label, list, cls) => `
+        <h4>${label}</h4>
+        ${list
+          .map(
+            (m) => `<div class="mover-row">
+              <span class="mover-symbol">${escapeHtml(m.symbol)}</span>
+              <span>$${m.close.toFixed(2)}</span>
+              <span class="${cls}">${m.pct >= 0 ? '+' : ''}${m.pct.toFixed(2)}%</span>
+            </div>`
+          )
+          .join('')}
+      `;
+      body.innerHTML = `
+        <div class="feed-source-group">${section('🚀 Gainers', gainers, 'pos')}</div>
+        <div class="feed-source-group">${section('📉 Losers', losers, 'neg')}</div>
+      `;
+    }
   } else if (widget.type === 'us-alerts-map') {
     const alerts = (await fetchNationalAlerts()).slice(0, listLimit);
     body.innerHTML = '';
@@ -1613,6 +1698,21 @@ function updateTrendingTopics() {
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Scroll to top
+// ---------------------------------------------------------------------------
+const scrollTopBtn = document.getElementById('scrollTopBtn');
+const headerEl = document.querySelector('.app-header');
+window.addEventListener(
+  'scroll',
+  () => {
+    const threshold = (headerEl?.offsetHeight || 60) + 40;
+    scrollTopBtn.classList.toggle('visible', window.scrollY > threshold);
+  },
+  { passive: true }
+);
+scrollTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 
 // ---------------------------------------------------------------------------
 // Theme

@@ -65,7 +65,22 @@ export const MARKET_GROUPS = {
 
 // A diversified default watchlist spanning tech, finance, retail, and
 // payments — not just a handful of mega-cap tech names.
-export const DEFAULT_PORTFOLIO = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META', 'JPM', 'V', 'WMT'];
+// A Fortune 500 sampler spanning tech, finance, healthcare, energy,
+// consumer, industrials, telecom, and auto — not just mega-cap tech.
+export const DEFAULT_PORTFOLIO = [
+  'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META',
+  'JPM', 'BAC', 'GS', 'V', 'MA',
+  'UNH', 'JNJ', 'PFE',
+  'XOM', 'CVX',
+  'WMT', 'HD', 'PG', 'KO', 'MCD',
+  'BA', 'CAT',
+  'T', 'VZ',
+  'TSLA', 'F',
+];
+
+// Same universe, used by the Big Movers widget to compute today's (or
+// last available session's, on weekends) biggest gainers/losers.
+export const MOVERS_UNIVERSE = DEFAULT_PORTFOLIO;
 
 // Symbols Stooq references bare (no ".us" market suffix) — forex pairs and
 // crypto. Everything else gets ".us" appended by normalizeStooqSymbol.
@@ -125,8 +140,11 @@ export const FEED_BUNDLES = {
   breaking: {
     label: 'Breaking News Alerts',
     feeds: [
-      { name: 'AP (Google News)', url: 'https://news.google.com/rss/search?q=when:1h+allinurl:apnews.com&hl=en-US&gl=US&ceid=US:en' },
-      { name: 'Reuters (Google News)', url: 'https://news.google.com/rss/search?q=when:1h+allinurl:reuters.com&hl=en-US&gl=US&ceid=US:en' },
+      // when:1h was too narrow — Google News often hasn't indexed a matching
+      // article from a specific domain within the last hour, so this came
+      // back empty most of the time even though the sources are fine.
+      { name: 'AP (Google News)', url: 'https://news.google.com/rss/search?q=when:6h+allinurl:apnews.com&hl=en-US&gl=US&ceid=US:en' },
+      { name: 'Reuters (Google News)', url: 'https://news.google.com/rss/search?q=when:6h+allinurl:reuters.com&hl=en-US&gl=US&ceid=US:en' },
       { name: 'Breaking News (Google News)', url: 'https://news.google.com/rss/search?q=breaking%20news&hl=en-US&gl=US&ceid=US:en' },
     ],
   },
@@ -222,6 +240,11 @@ export const FEED_BUNDLES = {
       { name: 'Kotaku', url: 'https://kotaku.com/rss' },
       { name: 'Reddit r/comicbooks', url: 'https://www.reddit.com/r/comicbooks/.rss' },
       { name: 'Reddit r/ActionFigures', url: 'https://www.reddit.com/r/ActionFigures/.rss' },
+      { name: 'WDWNT', url: 'https://wdwnt.com/feed/' },
+      { name: 'Disney Food Blog', url: 'https://www.disneyfoodblog.com/feed/' },
+      { name: 'AllEars.net', url: 'https://allears.net/feed/' },
+      { name: 'Disney Official (Google News)', url: 'https://news.google.com/rss/search?q=site:thewaltdisneycompany.com+when:5d&hl=en-US&gl=US&ceid=US:en' },
+      { name: 'Disney Movies (Google News)', url: 'https://news.google.com/rss/search?q=%22Disney%22+(movie+OR+film+OR+box+office)+when:3d&hl=en-US&gl=US&ceid=US:en' },
     ],
   },
 };
@@ -266,6 +289,7 @@ export const WIDGET_CATEGORIES = {
   portfolio: 'markets',
   'markets-overview': 'markets',
   bonds: 'markets',
+  movers: 'markets',
   'wiki-trending': 'trends',
   earthquakes: 'safety',
   'local-alerts': 'safety',

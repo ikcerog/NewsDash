@@ -280,11 +280,25 @@ async function fetchServiceStatus() {
   return STATUS_SERVICES.map((s, i) => (results[i].status === 'fulfilled' ? results[i].value : { name: s.name, indicator: null, description: null }));
 }
 
+async function fetchGlobalDisasters() {
+  const url = 'https://api.reliefweb.int/v1/disasters?appname=newsdash&profile=list&preset=latest&limit=20';
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error(`ReliefWeb ${res.status}`);
+  const data = await res.json();
+  return (data.data || []).map((d) => ({
+    name: d.fields?.name,
+    type: d.fields?.type?.map((t) => t.name).join(', '),
+    country: d.fields?.country?.map((c) => c.name).join(', '),
+    date: d.fields?.date?.created,
+    url: d.fields?.url_alias || d.fields?.url || `https://reliefweb.int/disaster/${d.id}`,
+  }));
+}
+
 async function main() {
   const allMarketSymbols = Object.values(MARKET_GROUPS).flatMap((g) => g.symbols.map((s) => s.sym));
   const sparklineSymbols = [...new Set([...allMarketSymbols, ...DEFAULT_PORTFOLIO])];
 
-  const [feeds, polymarket, quotes, wikiTrending, treasury, earthquakes, nationalAlerts, serviceStatus] = await Promise.all([
+  const [feeds, polymarket, quotes, wikiTrending, treasury, earthquakes, nationalAlerts, serviceStatus, globalDisasters] = await Promise.all([
     safe('feed bundles', fetchAllBundles),
     safe('polymarket', fetchPolymarket),
     safe('quotes', () => fetchQuotes(sparklineSymbols)),
@@ -293,6 +307,7 @@ async function main() {
     safe('earthquakes', fetchEarthquakes),
     safe('national alerts', fetchNationalAlerts),
     safe('service status', fetchServiceStatus),
+    safe('global disasters', fetchGlobalDisasters),
   ]);
 
   const sparklineResults = await Promise.allSettled(sparklineSymbols.map((s) => fetchSparkline(s)));
@@ -330,6 +345,7 @@ async function main() {
     earthquakes: earthquakes || [],
     nationalAlerts: nationalAlerts || [],
     serviceStatus: serviceStatus || [],
+    globalDisasters: globalDisasters || [],
   };
 
   await mkdir(path.dirname(OUT_PATH), { recursive: true });
