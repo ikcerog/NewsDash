@@ -1819,8 +1819,14 @@ function computeLoadMetrics() {
 window.addEventListener('load', () => {
   const chip = document.getElementById('loadTimeChip');
   if (!chip) return;
-  loadMetrics = computeLoadMetrics();
-  chip.textContent = `⏱ ${loadMetrics.total.toFixed(2)}s`;
+  // nav.loadEventEnd reads as 0 while the load event is still dispatching —
+  // the browser only finalizes it right after every 'load' listener
+  // returns. A setTimeout(0) pushes the read to the next tick, after that
+  // (the reason the chip always showed 0.00s).
+  setTimeout(() => {
+    loadMetrics = computeLoadMetrics();
+    chip.textContent = `⏱ ${loadMetrics.total.toFixed(2)}s`;
+  }, 0);
 });
 
 const loadTimeChip = document.getElementById('loadTimeChip');
