@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<title>NewsDash</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark">◆</span>
+      <span class="brand-name">NewsDash</span>
+      <button id="versionChip" class="version-chip" title="View patch notes">v0.2.0</button>
+    </div>
+    <div class="header-actions">
+      <button id="addWidgetBtn" class="btn btn-primary">+ Add Widget</button>
+      <button id="themeToggle" class="icon-btn" title="Toggle light/dark mode" aria-label="Toggle theme">🌙</button>
+    </div>
+  </header>
+
+  <div id="tickerBar" class="ticker-bar" aria-label="Breaking headlines ticker">
+    <div id="tickerTrack" class="ticker-track">Loading headlines…</div>
+  </div>
+
+  <main id="widgetGrid" class="widget-grid"></main>
+
+  <footer class="app-footer">
+    <span>NewsDash — built on free &amp; open RSS/APIs. No tracking, no keys required.</span>
+  </footer>
+
+  <!-- Add Widget Modal -->
+  <div id="addWidgetModal" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Add Widget</h2>
+        <button class="icon-btn modal-close" data-close="addWidgetModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span>Widget Type</span>
+          <select id="widgetTypeSelect">
+            <option value="feed-bundle">News Feed Bundle</option>
+            <option value="feed-custom">Custom RSS Feed</option>
+            <option value="polymarket">Polymarket Forecasts</option>
+            <option value="portfolio">Stock Portfolio</option>
+            <option value="markets-overview">Markets Overview</option>
+          </select>
+        </label>
+
+        <div id="bundleFields" class="field-group">
+          <label class="field">
+            <span>Bundle</span>
+            <select id="bundleSelect">
+              <option value="tier1">Tier 1 Headlines (WSJ, BBC, NPR, NYT…)</option>
+              <option value="breaking">Breaking News Alerts</option>
+              <option value="detroit">Detroit Local</option>
+              <option value="deepwire">Deep Wire (HN, Reddit, Politico…)</option>
+              <option value="gaming">Gaming (WoWhead, ESO, Reddit…)</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="customFields" class="field-group hidden">
+          <label class="field">
+            <span>Feed Title</span>
+            <input type="text" id="customName" placeholder="My Feed" />
+          </label>
+          <label class="field">
+            <span>RSS/Atom URL</span>
+            <input type="text" id="customUrl" placeholder="https://example.com/rss.xml" />
+          </label>
+        </div>
+
+        <div id="polymarketFields" class="field-group hidden">
+          <label class="field">
+            <span>Category filter (optional)</span>
+            <input type="text" id="polyCategory" placeholder="politics, crypto, sports…" />
+          </label>
+        </div>
+
+        <div id="portfolioFields" class="field-group hidden">
+          <label class="field">
+            <span>Symbols (comma-separated)</span>
+            <input type="text" id="portfolioSymbols" placeholder="AAPL, MSFT, TSLA" />
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="confirmAddWidget" class="btn btn-primary">Add Widget</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Patch Notes Modal -->
+  <div id="patchNotesModal" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Patch Notes</h2>
+        <button class="icon-btn modal-close" data-close="patchNotesModal">✕</button>
+      </div>
+      <div class="modal-body" id="patchNotesBody"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
