@@ -6,10 +6,21 @@
 // snapshot (a custom feed URL, an arbitrary portfolio symbol, a custom
 // Polymarket search) still fetches live from the browser, routed through a
 // free CORS proxy chain as a fallback.
-import { MARKET_GROUPS, FEED_BUNDLES, DEFAULT_PORTFOLIO, WIDGET_CATEGORIES, CATEGORY_LABELS } from './shared-config.js';
+import { MARKET_GROUPS, FEED_BUNDLES, DEFAULT_PORTFOLIO, WIDGET_CATEGORIES, CATEGORY_LABELS, STATUS_SERVICES } from './shared-config.js';
 
-const APP_VERSION = '0.2.4';
+const APP_VERSION = '0.2.5';
 const PATCH_NOTES = [
+  {
+    version: '0.2.5',
+    date: '2026-08-22',
+    notes: [
+      'Added Focus mode: an ⤢ button on every widget opens a modal with the full story list instead of the compact preview.',
+      'Mobile redesign: compact hamburger menu (search/add-widget/theme moved off the main bar) and flatter, edge-to-edge widget cards instead of heavy shadowed blocks.',
+      'Added new sources: The Verge, Smashing Magazine, web.dev, W3C Blog, Techdirt, TechRadar (Web & Dev); Krebs on Security, The Hacker News, BleepingComputer, IEEE Spectrum, SC Media (Security & Deep Wire); Anthropic, OpenAI, DeepMind (AI News); AWS, Cloudflare, GitHub, Netlify (Cloud & Infra).',
+      'Added Service Status widget — live incident status for Cloudflare, GitHub, OpenAI, Anthropic, Netlify, Reddit, Discord, Slack via their free public Statuspage APIs.',
+      'Added US Weather Alerts Map — nationwide severe/extreme NWS alerts plotted on a map (no ZIP needed), complementing the existing ZIP-based Local Alerts widget.',
+    ],
+  },
   {
     version: '0.2.4',
     date: '2026-08-22',
@@ -152,7 +163,13 @@ function defaultState() {
       { id: uid(), type: 'bonds', config: {} },
       { id: uid(), type: 'earthquakes', config: {} },
       { id: uid(), type: 'local-alerts', config: {} },
+      { id: uid(), type: 'us-alerts-map', config: {} },
       { id: uid(), type: 'disaster-map', config: {} },
+      { id: uid(), type: 'service-status', config: {} },
+      { id: uid(), type: 'feed-bundle', config: { bundle: 'webdev' } },
+      { id: uid(), type: 'feed-bundle', config: { bundle: 'security' } },
+      { id: uid(), type: 'feed-bundle', config: { bundle: 'ainews' } },
+      { id: uid(), type: 'feed-bundle', config: { bundle: 'cloudops' } },
     ],
   };
 }
@@ -293,7 +310,7 @@ async function fetchBundle(bundleKey) {
   }));
 }
 
-function filterPolymarketList(markets, category) {
+function filterPolymarketList(markets, category, limit = 15) {
   let filtered = markets;
   if (category) {
     const cat = category.toLowerCase();
@@ -302,7 +319,7 @@ function filterPolymarketList(markets, category) {
       return hay.includes(cat);
     });
   }
-  return filtered.slice(0, 15).map((m) => ({
+  return filtered.slice(0, limit).map((m) => ({
     question: m.question,
     url: m.url || `https://polymarket.com/event/${m.slug || m.eventSlug || ''}`,
     volume24hr: m.volume24hr || m.volume || 0,
@@ -311,14 +328,14 @@ function filterPolymarketList(markets, category) {
   }));
 }
 
-async function fetchPolymarket(category) {
+async function fetchPolymarket(category, limit = 15) {
   if (snapshotFresh() && SNAPSHOT.polymarket?.length) {
-    return filterPolymarketList(SNAPSHOT.polymarket, category);
+    return filterPolymarketList(SNAPSHOT.polymarket, category, limit);
   }
-  return withCache(`poly:${category || ''}`, 60 * 1000, () => fetchPolymarketUncached(category));
+  return withCache(`poly:${category || ''}:${limit}`, 60 * 1000, () => fetchPolymarketUncached(category, limit));
 }
 
-async function fetchPolymarketUncached(category) {
+async function fetchPolymarketUncached(category, limit = 15) {
   const url = new URL('https://gamma-api.polymarket.com/markets');
   url.searchParams.set('closed', 'false');
   url.searchParams.set('limit', '100');
@@ -337,7 +354,7 @@ async function fetchPolymarketUncached(category) {
     });
   }
 
-  return markets.slice(0, 15).map((m) => {
+  return markets.slice(0, limit).map((m) => {
     let outcomes = [];
     let prices = [];
     try {
@@ -567,6 +584,60 @@ async function fetchLocalAlerts(zip) {
 }
 
 // ---------------------------------------------------------------------------
+// Nationwide US weather alerts map — same free NWS API as Local Alerts, but
+// unscoped (no ZIP/point) so it covers the whole country, with polygon
+// geometry plotted on a Leaflet map where NWS provides it.
+// ---------------------------------------------------------------------------
+async function fetchNationalAlerts() {
+  if (snapshotFresh() && SNAPSHOT.nationalAlerts?.length) return SNAPSHOT.nationalAlerts;
+  return withCache('national-alerts', 5 * 60 * 1000, async () => {
+    const url = 'https://api.weather.gov/alerts/active?severity=Extreme,Severe';
+    const res = await fetch(url, {
+      cache: 'no-store',
+      headers: { Accept: 'application/geo+json' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`NWS ${res.status}`);
+    const data = await res.json();
+    return (data.features || []).slice(0, 40).map((f) => ({
+      event: f.properties.event,
+      severity: f.properties.severity,
+      areaDesc: f.properties.areaDesc,
+      link: `https://alerts.weather.gov/search?id=${f.properties.id || ''}`,
+      // NWS gives a polygon in most cases; approximate with its centroid for the map marker.
+      centroid: polygonCentroid(f.geometry),
+    }));
+  });
+}
+
+function polygonCentroid(geometry) {
+  if (!geometry) return null;
+  const coords = geometry.type === 'Polygon' ? geometry.coordinates?.[0] : geometry.type === 'Point' ? [geometry.coordinates] : null;
+  if (!coords || !coords.length) return null;
+  const [sumLon, sumLat] = coords.reduce(([lo, la], [lon, lat]) => [lo + lon, la + lat], [0, 0]);
+  return { lon: sumLon / coords.length, lat: sumLat / coords.length };
+}
+
+// ---------------------------------------------------------------------------
+// Service status — free, keyless Statuspage.io (Atlassian) v2 summary API,
+// used by hundreds of companies in an identical JSON shape.
+// ---------------------------------------------------------------------------
+async function fetchServiceStatus() {
+  if (snapshotFresh() && SNAPSHOT.serviceStatus?.length) return SNAPSHOT.serviceStatus;
+  const results = await Promise.allSettled(
+    STATUS_SERVICES.map((s) =>
+      withCache(`status:${s.name}`, 2 * 60 * 1000, async () => {
+        const res = await fetch(s.url, { cache: 'no-store', signal: AbortSignal.timeout(7000) });
+        if (!res.ok) throw new Error(`${res.status}`);
+        const data = await res.json();
+        return { name: s.name, indicator: data.status?.indicator || 'unknown', description: data.status?.description || 'Unknown' };
+      })
+    )
+  );
+  return STATUS_SERVICES.map((s, i) => (results[i].status === 'fulfilled' ? results[i].value : { name: s.name, indicator: null, description: null }));
+}
+
+// ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
 const grid = document.getElementById('widgetGrid');
@@ -594,6 +665,8 @@ function widgetTitle(widget) {
   if (widget.type === 'earthquakes') return 'Significant Earthquakes';
   if (widget.type === 'local-alerts') return 'Local Weather Alerts';
   if (widget.type === 'disaster-map') return 'Global Disaster Map';
+  if (widget.type === 'us-alerts-map') return 'US Weather Alerts Map';
+  if (widget.type === 'service-status') return 'Service Status';
   return 'Widget';
 }
 
@@ -609,6 +682,8 @@ function widgetIcon(widget) {
     earthquakes: '🌎',
     'local-alerts': '🚨',
     'disaster-map': '🗺️',
+    'us-alerts-map': '⚠️',
+    'service-status': '🟢',
   }[widget.type] || '▫';
 }
 
@@ -630,6 +705,7 @@ function renderWidget(widget, index = 0) {
     <div class="widget-header">
       <h3>${widgetIcon(widget)} ${escapeHtml(widgetTitle(widget))}</h3>
       <div class="controls">
+        <button class="focus-btn" title="Focus — view all">⤢</button>
         <button class="refresh-btn" title="Refresh">⟳</button>
         <button class="remove-btn" title="Remove">✕</button>
       </div>
@@ -643,6 +719,7 @@ function renderWidget(widget, index = 0) {
     renderGrid();
   });
   el.querySelector('.refresh-btn').addEventListener('click', () => loadWidgetData(widget, el));
+  el.querySelector('.focus-btn').addEventListener('click', () => openFocusModal(widget));
 
   el.addEventListener('dragstart', () => el.classList.add('dragging'));
   el.addEventListener('dragend', () => {
@@ -685,126 +762,186 @@ function getDragAfterElement(container, y, x) {
   ).element;
 }
 
-async function loadWidgetData(widget, el) {
-  const body = el.querySelector('.widget-body');
-  try {
-    if (widget.type === 'feed-bundle') {
-      const results = await fetchBundle(widget.config.bundle);
-      body.innerHTML = '';
-      let any = false;
-      results.forEach((r) => {
-        const group = document.createElement('div');
-        group.className = 'feed-source-group';
-        const h4 = document.createElement('h4');
-        h4.textContent = r.name;
-        group.appendChild(h4);
-        if (!r.error) {
-          any = true;
-          if (r.items.length) {
-            r.items.slice(0, 5).forEach((item) => group.appendChild(renderFeedItem(item)));
-          } else {
-            const empty = document.createElement('div');
-            empty.className = 'empty-state';
-            empty.textContent = 'No recent items';
-            group.appendChild(empty);
-          }
+// Renders a widget's content into `body`. `focus: true` (used by the Focus
+// modal) requests higher item limits than the compact card view.
+async function renderWidgetInto(widget, body, { focus = false } = {}) {
+  const feedLimit = focus ? 20 : 5;
+  const marketLimit = focus ? 50 : 15;
+  const listLimit = focus ? 20 : 8;
+
+  if (widget.type === 'feed-bundle') {
+    const results = await fetchBundle(widget.config.bundle);
+    body.innerHTML = '';
+    let any = false;
+    results.forEach((r) => {
+      const group = document.createElement('div');
+      group.className = 'feed-source-group';
+      const h4 = document.createElement('h4');
+      h4.textContent = r.name;
+      group.appendChild(h4);
+      if (!r.error) {
+        any = true;
+        if (r.items.length) {
+          r.items.slice(0, feedLimit).forEach((item) => group.appendChild(renderFeedItem(item)));
         } else {
-          const err = document.createElement('div');
-          err.className = 'error-state';
-          err.textContent = 'Unavailable right now';
-          group.appendChild(err);
+          const empty = document.createElement('div');
+          empty.className = 'empty-state';
+          empty.textContent = 'No recent items';
+          group.appendChild(empty);
         }
-        body.appendChild(group);
-      });
-      if (!any) body.insertAdjacentHTML('afterbegin', '<div class="error-state">All sources unavailable — try refresh.</div>');
-    } else if (widget.type === 'feed-custom') {
-      const items = await fetchFeed(widget.config.url);
-      body.innerHTML = '';
-      if (!items.length) body.innerHTML = '<div class="empty-state">No items found.</div>';
-      items.forEach((item) => body.appendChild(renderFeedItem(item)));
-    } else if (widget.type === 'polymarket') {
-      const markets = await fetchPolymarket(widget.config.category);
-      body.innerHTML = '';
-      if (!markets.length) body.innerHTML = '<div class="empty-state">No matching markets.</div>';
-      markets.forEach((m) => body.appendChild(renderMarketItem(m)));
-    } else if (widget.type === 'portfolio') {
-      body.innerHTML = renderPortfolioShell();
-      wirePortfolio(body);
-      await refreshPortfolioQuotes(body);
-    } else if (widget.type === 'markets-overview') {
-      body.innerHTML = '';
-      body.appendChild(await renderMarketsOverview());
-    } else if (widget.type === 'wiki-trending') {
-      const articles = await fetchWikiTrending();
-      body.innerHTML = '';
-      if (!articles.length) body.innerHTML = '<div class="empty-state">No data yet for today.</div>';
-      articles.forEach((a, i) => {
+      } else {
+        const err = document.createElement('div');
+        err.className = 'error-state';
+        err.textContent = 'Unavailable right now';
+        group.appendChild(err);
+      }
+      body.appendChild(group);
+    });
+    if (!any) body.insertAdjacentHTML('afterbegin', '<div class="error-state">All sources unavailable — try refresh.</div>');
+  } else if (widget.type === 'feed-custom') {
+    const items = await fetchFeed(widget.config.url);
+    body.innerHTML = '';
+    if (!items.length) body.innerHTML = '<div class="empty-state">No items found.</div>';
+    items.slice(0, feedLimit * 2).forEach((item) => body.appendChild(renderFeedItem(item)));
+  } else if (widget.type === 'polymarket') {
+    const markets = await fetchPolymarket(widget.config.category, marketLimit);
+    body.innerHTML = '';
+    if (!markets.length) body.innerHTML = '<div class="empty-state">No matching markets.</div>';
+    markets.forEach((m) => body.appendChild(renderMarketItem(m)));
+  } else if (widget.type === 'portfolio') {
+    body.innerHTML = renderPortfolioShell();
+    wirePortfolio(body);
+    await refreshPortfolioQuotes(body);
+  } else if (widget.type === 'markets-overview') {
+    body.innerHTML = '';
+    body.appendChild(await renderMarketsOverview());
+  } else if (widget.type === 'wiki-trending') {
+    const articles = await fetchWikiTrending();
+    body.innerHTML = '';
+    if (!articles.length) body.innerHTML = '<div class="empty-state">No data yet for today.</div>';
+    articles.slice(0, listLimit).forEach((a, i) => {
+      const div = document.createElement('div');
+      div.className = 'feed-item';
+      div.innerHTML = `
+        <a href="${escapeAttr(a.link)}" target="_blank" rel="noopener noreferrer">#${i + 1} ${escapeHtml(a.title)}</a>
+        <div class="meta">${a.views.toLocaleString()} views</div>
+      `;
+      body.appendChild(div);
+    });
+  } else if (widget.type === 'bonds') {
+    const { date, rates } = await fetchTreasuryYields();
+    body.innerHTML = '';
+    if (!rates.length) {
+      body.innerHTML = '<div class="empty-state">No yield data available.</div>';
+    } else {
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.style.marginBottom = '0.5rem';
+      meta.textContent = `As of ${escapeHtml(date || '')}`;
+      body.appendChild(meta);
+      const table = document.createElement('table');
+      table.className = 'markets-table';
+      table.innerHTML = `<tbody>${rates
+        .map((r) => `<tr><td class="mo-name">${escapeHtml(r.label)}</td><td class="mo-price">${r.value.toFixed(2)}%</td></tr>`)
+        .join('')}</tbody>`;
+      body.appendChild(table);
+    }
+  } else if (widget.type === 'earthquakes') {
+    const quakes = (await fetchEarthquakes()).slice(0, listLimit);
+    body.innerHTML = '';
+    if (!quakes.length) {
+      body.innerHTML = '<div class="empty-state">No significant earthquakes this week.</div>';
+    } else {
+      const mapEl = document.createElement('div');
+      mapEl.className = focus ? 'widget-map widget-map-large' : 'widget-map';
+      body.appendChild(mapEl);
+      initLeafletMap(mapEl, quakes.filter((q) => q.lat != null && q.lon != null).map((q) => ({
+        lat: q.lat,
+        lon: q.lon,
+        label: `M${q.mag?.toFixed(1) ?? '?'} — ${q.place}`,
+        radius: Math.max(4, (q.mag || 1) * 3),
+      })));
+      quakes.forEach((q) => {
         const div = document.createElement('div');
         div.className = 'feed-item';
         div.innerHTML = `
-          <a href="${escapeAttr(a.link)}" target="_blank" rel="noopener noreferrer">#${i + 1} ${escapeHtml(a.title)}</a>
-          <div class="meta">${a.views.toLocaleString()} views</div>
+          <a href="${escapeAttr(q.link)}" target="_blank" rel="noopener noreferrer">M${q.mag?.toFixed(1) ?? '?'} — ${escapeHtml(q.place)}</a>
+          <div class="meta">${escapeHtml(timeAgo(q.time))}</div>
         `;
         body.appendChild(div);
       });
-    } else if (widget.type === 'bonds') {
-      const { date, rates } = await fetchTreasuryYields();
-      body.innerHTML = '';
-      if (!rates.length) {
-        body.innerHTML = '<div class="empty-state">No yield data available.</div>';
-      } else {
-        const meta = document.createElement('div');
-        meta.className = 'meta';
-        meta.style.marginBottom = '0.5rem';
-        meta.textContent = `As of ${escapeHtml(date || '')}`;
-        body.appendChild(meta);
-        const table = document.createElement('table');
-        table.className = 'markets-table';
-        table.innerHTML = `<tbody>${rates
-          .map((r) => `<tr><td class="mo-name">${escapeHtml(r.label)}</td><td class="mo-price">${r.value.toFixed(2)}%</td></tr>`)
-          .join('')}</tbody>`;
-        body.appendChild(table);
-      }
-    } else if (widget.type === 'earthquakes') {
-      const quakes = await fetchEarthquakes();
-      body.innerHTML = '';
-      if (!quakes.length) {
-        body.innerHTML = '<div class="empty-state">No significant earthquakes this week.</div>';
-      } else {
-        const mapEl = document.createElement('div');
-        mapEl.className = 'widget-map';
-        body.appendChild(mapEl);
-        initLeafletMap(mapEl, quakes.filter((q) => q.lat != null && q.lon != null).map((q) => ({
-          lat: q.lat,
-          lon: q.lon,
-          label: `M${q.mag?.toFixed(1) ?? '?'} — ${q.place}`,
-          radius: Math.max(4, (q.mag || 1) * 3),
-        })));
-        quakes.forEach((q) => {
-          const div = document.createElement('div');
-          div.className = 'feed-item';
-          div.innerHTML = `
-            <a href="${escapeAttr(q.link)}" target="_blank" rel="noopener noreferrer">M${q.mag?.toFixed(1) ?? '?'} — ${escapeHtml(q.place)}</a>
-            <div class="meta">${escapeHtml(timeAgo(q.time))}</div>
-          `;
-          body.appendChild(div);
-        });
-      }
-    } else if (widget.type === 'local-alerts') {
-      body.innerHTML = renderLocalAlertsShell();
-      wireLocalAlerts(body, widget);
-      if (state.localZip) await refreshLocalAlerts(body, state.localZip);
-    } else if (widget.type === 'disaster-map') {
-      body.innerHTML = `
-        <div class="empty-state" style="text-align:left;">
-          RSOE EDIS tracks earthquakes, storms, floods, and other disaster events worldwide on a live map.
-          <br /><br />
-          <a class="btn btn-primary" href="https://rsoe-edis.org/eventList" target="_blank" rel="noopener noreferrer">Open RSOE EDIS Event Map ↗</a>
-          <br /><br />
-          <span class="meta">Opens in a new tab — their live map isn't embeddable from here.</span>
-        </div>
-      `;
     }
+  } else if (widget.type === 'local-alerts') {
+    body.innerHTML = renderLocalAlertsShell();
+    wireLocalAlerts(body, widget);
+    if (state.localZip) await refreshLocalAlerts(body, state.localZip);
+  } else if (widget.type === 'disaster-map') {
+    body.innerHTML = `
+      <div class="empty-state" style="text-align:left;">
+        RSOE EDIS tracks earthquakes, storms, floods, and other disaster events worldwide on a live map.
+        <br /><br />
+        <a class="btn btn-primary" href="https://rsoe-edis.org/eventList" target="_blank" rel="noopener noreferrer">Open RSOE EDIS Event Map ↗</a>
+        <br /><br />
+        <span class="meta">Opens in a new tab — their live map isn't embeddable from here.</span>
+      </div>
+    `;
+  } else if (widget.type === 'us-alerts-map') {
+    const alerts = (await fetchNationalAlerts()).slice(0, listLimit);
+    body.innerHTML = '';
+    if (!alerts.length) {
+      body.innerHTML = '<div class="empty-state">No severe/extreme alerts active right now.</div>';
+    } else {
+      const mapEl = document.createElement('div');
+      mapEl.className = focus ? 'widget-map widget-map-large' : 'widget-map';
+      body.appendChild(mapEl);
+      initLeafletMap(
+        mapEl,
+        alerts
+          .filter((a) => a.centroid)
+          .map((a) => ({ lat: a.centroid.lat, lon: a.centroid.lon, label: `${a.event} — ${a.areaDesc}`, radius: 7 }))
+      );
+      alerts.forEach((a) => {
+        const div = document.createElement('div');
+        div.className = 'feed-item';
+        div.innerHTML = `
+          <a href="${escapeAttr(a.link)}" target="_blank" rel="noopener noreferrer">⚠️ ${escapeHtml(a.event)}</a>
+          <div class="meta">${escapeHtml(a.areaDesc || '')}</div>
+        `;
+        body.appendChild(div);
+      });
+    }
+  } else if (widget.type === 'service-status') {
+    const statuses = await fetchServiceStatus();
+    body.innerHTML = '';
+    const table = document.createElement('table');
+    table.className = 'status-table';
+    table.innerHTML = `<tbody>${statuses
+      .map((s) => {
+        const dotClass = s.indicator === 'none' ? 'ok' : s.indicator === 'minor' ? 'minor' : s.indicator ? 'major' : 'unknown';
+        const label = s.description || 'Unavailable';
+        return `<tr><td><span class="status-dot ${dotClass}"></span>${escapeHtml(s.name)}</td><td class="status-desc">${escapeHtml(label)}</td></tr>`;
+      })
+      .join('')}</tbody>`;
+    body.appendChild(table);
+  }
+}
+
+async function loadWidgetData(widget, el) {
+  const body = el.querySelector('.widget-body');
+  try {
+    await renderWidgetInto(widget, body, { focus: false });
+  } catch (err) {
+    body.innerHTML = `<div class="error-state">Failed to load: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function openFocusModal(widget) {
+  document.getElementById('focusModalTitle').textContent = `${widgetIcon(widget)} ${widgetTitle(widget)}`;
+  const body = document.getElementById('focusModalBody');
+  body.innerHTML = '<div class="loading-state">Loading…</div>';
+  openModal('focusModal');
+  try {
+    await renderWidgetInto(widget, body, { focus: true });
   } catch (err) {
     body.innerHTML = `<div class="error-state">Failed to load: ${escapeHtml(err.message)}</div>`;
   }
@@ -1261,6 +1398,22 @@ document.getElementById('themeToggle').addEventListener('click', () => {
   state.theme = state.theme === 'dark' ? 'light' : 'dark';
   saveState();
   applyTheme();
+});
+
+// ---------------------------------------------------------------------------
+// Mobile hamburger menu
+// ---------------------------------------------------------------------------
+const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+const headerControls = document.getElementById('headerControls');
+mobileMenuBtn.addEventListener('click', () => {
+  const open = headerControls.classList.toggle('open');
+  mobileMenuBtn.setAttribute('aria-expanded', String(open));
+});
+document.addEventListener('click', (e) => {
+  if (!headerControls.classList.contains('open')) return;
+  if (headerControls.contains(e.target) || mobileMenuBtn.contains(e.target)) return;
+  headerControls.classList.remove('open');
+  mobileMenuBtn.setAttribute('aria-expanded', 'false');
 });
 
 // ---------------------------------------------------------------------------

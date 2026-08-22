@@ -12,14 +12,17 @@
     <div class="brand">
       <span class="brand-mark">◆</span>
       <span class="brand-name">NewsDash</span>
-      <button id="versionChip" class="version-chip" title="View patch notes">v0.2.4</button>
+      <button id="versionChip" class="version-chip" title="View patch notes">v0.2.5</button>
     </div>
-    <div class="search-wrap">
-      <input type="text" id="globalSearch" class="search-input" placeholder="Filter headlines as you type…" />
-    </div>
-    <div class="header-actions">
-      <button id="addWidgetBtn" class="btn btn-primary">+ Add Widget</button>
-      <button id="themeToggle" class="icon-btn" title="Toggle light/dark mode" aria-label="Toggle theme">🌙</button>
+    <button id="mobileMenuBtn" class="icon-btn mobile-menu-btn" aria-label="Menu" aria-expanded="false">☰</button>
+    <div id="headerControls" class="header-controls">
+      <div class="search-wrap">
+        <input type="text" id="globalSearch" class="search-input" placeholder="Filter headlines as you type…" />
+      </div>
+      <div class="header-actions">
+        <button id="addWidgetBtn" class="btn btn-primary">+ Add Widget</button>
+        <button id="themeToggle" class="icon-btn" title="Toggle light/dark mode" aria-label="Toggle theme">🌙</button>
+      </div>
     </div>
   </header>
 
@@ -63,7 +66,9 @@
             <option value="bonds">Treasury Yields</option>
             <option value="earthquakes">Significant Earthquakes (with map)</option>
             <option value="local-alerts">Local Weather Alerts (by ZIP)</option>
+            <option value="us-alerts-map">US Weather Alerts Map (nationwide)</option>
             <option value="disaster-map">Global Disaster Map (RSOE EDIS link)</option>
+            <option value="service-status">Service Status (Cloudflare, GitHub, OpenAI…)</option>
           </select>
         </label>
 
@@ -77,6 +82,10 @@
               <option value="deepwire">Deep Wire (HN, Reddit, Politico…)</option>
               <option value="gaming">Gaming (WoWhead, ESO, Reddit…)</option>
               <option value="trending">Trending Now (Google Trends, Reddit)</option>
+              <option value="webdev">Web & Dev (Verge, Smashing, W3C…)</option>
+              <option value="security">Security & Deep Wire (Krebs, HN…)</option>
+              <option value="ainews">AI News (Anthropic, OpenAI, DeepMind…)</option>
+              <option value="cloudops">Cloud & Infra (AWS, Cloudflare, GitHub…)</option>
             </select>
           </label>
         </div>
@@ -109,6 +118,17 @@
       <div class="modal-footer">
         <button id="confirmAddWidget" class="btn btn-primary">Add Widget</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Focus Modal -->
+  <div id="focusModal" class="modal-backdrop hidden">
+    <div class="modal modal-large">
+      <div class="modal-header">
+        <h2 id="focusModalTitle">Widget</h2>
+        <button class="icon-btn modal-close" data-close="focusModal">✕</button>
+      </div>
+      <div class="modal-body" id="focusModalBody"></div>
     </div>
   </div>
 

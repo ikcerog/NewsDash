@@ -9,7 +9,7 @@ import Parser from 'rss-parser';
 import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FEED_BUNDLES, MARKET_GROUPS, DEFAULT_PORTFOLIO } from '../public/shared-config.js';
+import { FEED_BUNDLES, MARKET_GROUPS, DEFAULT_PORTFOLIO, STATUS_SERVICES } from '../public/shared-config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = path.join(__dirname, '../public/data/snapshot.json');
@@ -171,17 +171,53 @@ async function fetchEarthquakes() {
     }));
 }
 
+function polygonCentroid(geometry) {
+  if (!geometry) return null;
+  const coords = geometry.type === 'Polygon' ? geometry.coordinates?.[0] : geometry.type === 'Point' ? [geometry.coordinates] : null;
+  if (!coords || !coords.length) return null;
+  const [sumLon, sumLat] = coords.reduce(([lo, la], [lon, lat]) => [lo + lon, la + lat], [0, 0]);
+  return { lon: sumLon / coords.length, lat: sumLat / coords.length };
+}
+
+async function fetchNationalAlerts() {
+  const url = 'https://api.weather.gov/alerts/active?severity=Extreme,Severe';
+  const res = await fetch(url, { headers: { Accept: 'application/geo+json' }, signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error(`NWS ${res.status}`);
+  const data = await res.json();
+  return (data.features || []).slice(0, 40).map((f) => ({
+    event: f.properties.event,
+    severity: f.properties.severity,
+    areaDesc: f.properties.areaDesc,
+    link: `https://alerts.weather.gov/search?id=${f.properties.id || ''}`,
+    centroid: polygonCentroid(f.geometry),
+  }));
+}
+
+async function fetchServiceStatus() {
+  const results = await Promise.allSettled(
+    STATUS_SERVICES.map(async (s) => {
+      const res = await fetch(s.url, { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+      return { name: s.name, indicator: data.status?.indicator || 'unknown', description: data.status?.description || 'Unknown' };
+    })
+  );
+  return STATUS_SERVICES.map((s, i) => (results[i].status === 'fulfilled' ? results[i].value : { name: s.name, indicator: null, description: null }));
+}
+
 async function main() {
   const allMarketSymbols = Object.values(MARKET_GROUPS).flatMap((g) => g.symbols.map((s) => s.sym));
   const sparklineSymbols = [...new Set([...allMarketSymbols, ...DEFAULT_PORTFOLIO])];
 
-  const [feeds, polymarket, quotes, wikiTrending, treasury, earthquakes] = await Promise.all([
+  const [feeds, polymarket, quotes, wikiTrending, treasury, earthquakes, nationalAlerts, serviceStatus] = await Promise.all([
     safe('feed bundles', fetchAllBundles),
     safe('polymarket', fetchPolymarket),
     safe('quotes', () => fetchQuotes(sparklineSymbols)),
     safe('wiki trending', fetchWikiTrending),
     safe('treasury yields', fetchTreasuryYields),
     safe('earthquakes', fetchEarthquakes),
+    safe('national alerts', fetchNationalAlerts),
+    safe('service status', fetchServiceStatus),
   ]);
 
   const sparklineResults = await Promise.allSettled(sparklineSymbols.map((s) => fetchSparkline(s)));
@@ -201,6 +237,8 @@ async function main() {
     wikiTrending: wikiTrending || [],
     treasury: treasury || { date: null, rates: [] },
     earthquakes: earthquakes || [],
+    nationalAlerts: nationalAlerts || [],
+    serviceStatus: serviceStatus || [],
   };
 
   await mkdir(path.dirname(OUT_PATH), { recursive: true });

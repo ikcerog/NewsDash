@@ -109,7 +109,61 @@ export const FEED_BUNDLES = {
       { name: 'Reddit r/all', url: 'https://www.reddit.com/r/all/top/.rss?t=day' },
     ],
   },
+  webdev: {
+    label: 'Web & Dev',
+    feeds: [
+      { name: 'The Verge', url: 'https://www.theverge.com/rss/index.xml' },
+      { name: 'Smashing Magazine', url: 'https://www.smashingmagazine.com/feed/' },
+      { name: 'web.dev', url: 'https://web.dev/feed.xml' },
+      { name: 'W3C Blog', url: 'https://www.w3.org/blog/news/feed' },
+      { name: 'Techdirt', url: 'https://www.techdirt.com/techdirt_rss.xml' },
+      { name: 'TechRadar (Google News)', url: 'https://news.google.com/rss/search?q=site:techradar.com+when:3d&hl=en-US&gl=US&ceid=US:en' },
+    ],
+  },
+  security: {
+    label: 'Security & Deep Wire',
+    feeds: [
+      { name: 'Krebs on Security', url: 'https://krebsonsecurity.com/feed/' },
+      { name: 'The Hacker News', url: 'https://thehackernews.com/feeds/posts/default' },
+      { name: 'BleepingComputer', url: 'https://www.bleepingcomputer.com/feed/' },
+      { name: 'IEEE Spectrum', url: 'https://spectrum.ieee.org/rss/fulltext' },
+      { name: 'SC Media (Google News)', url: 'https://news.google.com/rss/search?q=site:scmagazine.com+when:3d&hl=en-US&gl=US&ceid=US:en' },
+    ],
+  },
+  ainews: {
+    label: 'AI News',
+    feeds: [
+      { name: 'Anthropic (Google News)', url: 'https://news.google.com/rss/search?q=site:anthropic.com+when:3d&hl=en-US&gl=US&ceid=US:en' },
+      { name: 'OpenAI (Google News)', url: 'https://news.google.com/rss/search?q=site:openai.com+when:3d&hl=en-US&gl=US&ceid=US:en' },
+      { name: 'Google DeepMind (Google News)', url: 'https://news.google.com/rss/search?q=site:deepmind.google+when:5d&hl=en-US&gl=US&ceid=US:en' },
+      { name: 'Ars Technica AI (Google News)', url: 'https://news.google.com/rss/search?q=site:arstechnica.com+AI+when:3d&hl=en-US&gl=US&ceid=US:en' },
+      { name: 'Reddit r/artificial', url: 'https://www.reddit.com/r/artificial/.rss' },
+    ],
+  },
+  cloudops: {
+    label: 'Cloud & Infra',
+    feeds: [
+      { name: 'AWS What\'s New', url: 'https://aws.amazon.com/about-aws/whats-new/recent/feed/' },
+      { name: 'Cloudflare Blog', url: 'https://blog.cloudflare.com/rss/' },
+      { name: 'GitHub Blog', url: 'https://github.blog/feed/' },
+      { name: 'Netlify (Google News)', url: 'https://news.google.com/rss/search?q=site:netlify.com+when:7d&hl=en-US&gl=US&ceid=US:en' },
+    ],
+  },
 };
+
+// Free, keyless Statuspage.io (Atlassian) v2 summary endpoints. Any entry
+// that's wrong or goes down just shows "unavailable" for that one row —
+// each is fetched and handled independently.
+export const STATUS_SERVICES = [
+  { name: 'Cloudflare', url: 'https://www.cloudflarestatus.com/api/v2/summary.json' },
+  { name: 'GitHub', url: 'https://www.githubstatus.com/api/v2/summary.json' },
+  { name: 'OpenAI', url: 'https://status.openai.com/api/v2/summary.json' },
+  { name: 'Anthropic', url: 'https://status.anthropic.com/api/v2/summary.json' },
+  { name: 'Netlify', url: 'https://www.netlifystatus.com/api/v2/summary.json' },
+  { name: 'Reddit', url: 'https://www.redditstatus.com/api/v2/summary.json' },
+  { name: 'Discord', url: 'https://discordstatus.com/api/v2/summary.json' },
+  { name: 'Slack', url: 'https://slack-status.com/api/v2/summary.json' },
+];
 
 // Widget type -> left-rail module category, used by the sidebar filter.
 export const WIDGET_CATEGORIES = {
@@ -123,6 +177,8 @@ export const WIDGET_CATEGORIES = {
   earthquakes: 'safety',
   'local-alerts': 'safety',
   'disaster-map': 'safety',
+  'us-alerts-map': 'safety',
+  'service-status': 'infra',
 };
 
 export const CATEGORY_LABELS = {
@@ -131,4 +187,5 @@ export const CATEGORY_LABELS = {
   forecasting: 'Forecasting',
   trends: 'Trends',
   safety: 'Safety & Alerts',
+  infra: 'Infrastructure',
 };
