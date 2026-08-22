@@ -6,10 +6,39 @@
 // snapshot (a custom feed URL, an arbitrary portfolio symbol, a custom
 // Polymarket search) still fetches live from the browser, routed through a
 // free CORS proxy chain as a fallback.
-import { MARKET_GROUPS, FEED_BUNDLES, DEFAULT_PORTFOLIO, WIDGET_CATEGORIES, CATEGORY_LABELS, STATUS_SERVICES } from './shared-config.js';
+import {
+  MARKET_GROUPS,
+  FEED_BUNDLES,
+  DEFAULT_PORTFOLIO,
+  WIDGET_CATEGORIES,
+  CATEGORY_LABELS,
+  STATUS_SERVICES,
+  normalizeStooqSymbol,
+  toYahooSymbol,
+} from './shared-config.js?v=0.2.7';
 
-const APP_VERSION = '0.2.5';
+const APP_VERSION = '0.2.7';
 const PATCH_NOTES = [
+  {
+    version: '0.2.7',
+    date: '2026-08-22',
+    notes: [
+      'Added a Yahoo Finance fallback for quotes/sparklines — Stooq appears to block the free CORS proxies wholesale, which was why Markets Overview, Portfolio, and the secondary ticker were consistently empty. Both are now captured server-side by the snapshot too.',
+      'Fixed a real bug: forex/crypto symbols (EUR/USD, Bitcoin, etc.) were getting an incorrect ".us" suffix appended, silently breaking those specific quotes even when Stooq worked.',
+      'Expanded the default symbol set: 11-sector SPDR breakdown, a new Bonds group (TLT, IEF, HYG, LQD, AGG, SHY), Copper added to commodities, USD/CAD and Ethereum added to currencies, and a diversified 10-stock default portfolio (was 4 mega-cap tech names).',
+      'Consolidated quote-symbol logic (Stooq/Yahoo mapping) into shared-config.js so the browser and the snapshot script can\'t drift apart.',
+      'Made the Google Fonts stylesheet non-render-blocking (loads async, swaps in once ready) so a slow or unreachable font CDN can never delay first paint.',
+    ],
+  },
+  {
+    version: '0.2.6',
+    date: '2026-08-22',
+    notes: [
+      'Fixed a stale-cache bug: styles.css/app.js/shared-config.js had no cache-busting, so a deploy could leave browsers/CDN edges serving old CSS against new HTML (the cause of the broken hybrid mobile-header rendering some users saw). All are now versioned (?v=) and bumped on every release.',
+      'New visual design: warm editorial color palette (paper tones + terracotta accent) instead of generic SaaS blue.',
+      'New typography: Science Gothic for headers/UI chrome, IBM Plex Serif for body copy — a sans/serif split for a cleaner, more contemporary feel.',
+    ],
+  },
   {
     version: '0.2.5',
     date: '2026-08-22',
@@ -373,20 +402,21 @@ async function fetchPolymarketUncached(category, limit = 15) {
   });
 }
 
-function normalizeStooqSymbol(s) {
-  const lower = s.toLowerCase();
-  if (lower.startsWith('^') || lower.includes('.')) return lower;
-  return `${lower}.us`;
-}
+// Stooq's free quote endpoint appears to be blocked/throttled for the CORS
+// proxies this app relies on (it fails wholesale even when other proxied
+// requests succeed) — Yahoo Finance's unofficial-but-widely-used quote API
+// is the fallback so quotes still have a real second path, not just a
+// retry of the same blocked one. normalizeStooqSymbol/toYahooSymbol live in
+// shared-config.js so the snapshot script uses identical logic.
 
-async function fetchQuotesLive(rawSymbols) {
+async function fetchQuotesStooq(rawSymbols) {
   const stooqSymbols = rawSymbols.map(normalizeStooqSymbol).join(',');
   const url = `https://stooq.com/q/l/?s=${stooqSymbols}&f=sd2t2ohlcv&h&e=csv`;
   const res = await proxiedFetch(url, { direct: false });
   const csv = await res.text();
   const lines = csv.trim().split('\n');
   const header = lines[0].split(',');
-  return lines.slice(1).map((line) => {
+  const rows = lines.slice(1).map((line) => {
     const cells = line.split(',');
     const row = {};
     header.forEach((h, i) => (row[h.trim()] = cells[i]));
@@ -396,6 +426,33 @@ async function fetchQuotesLive(rawSymbols) {
       open: parseFloat(row.Open),
     };
   });
+  if (!rows.some((r) => !isNaN(r.close))) throw new Error('Stooq returned no usable quotes');
+  return rows;
+}
+
+async function fetchQuotesYahoo(rawSymbols) {
+  const yahooSymbols = rawSymbols.map(toYahooSymbol);
+  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${yahooSymbols.map(encodeURIComponent).join(',')}`;
+  const res = await proxiedFetch(url, { direct: false });
+  const data = await res.json();
+  const results = data.quoteResponse?.result || [];
+  const byYahooSymbol = Object.fromEntries(results.map((r) => [r.symbol, r]));
+  return rawSymbols.map((raw, i) => {
+    const q = byYahooSymbol[yahooSymbols[i]];
+    return {
+      symbol: normalizeStooqSymbol(raw).toUpperCase(),
+      close: q ? q.regularMarketPrice : NaN,
+      open: q ? q.regularMarketPreviousClose ?? q.regularMarketOpen : NaN,
+    };
+  });
+}
+
+async function fetchQuotesLive(rawSymbols) {
+  try {
+    return await fetchQuotesStooq(rawSymbols);
+  } catch (err) {
+    return fetchQuotesYahoo(rawSymbols);
+  }
 }
 
 async function fetchQuotesRaw(rawSymbols) {
@@ -439,17 +496,28 @@ async function fetchSparkline(rawSymbol) {
     if (cached && cached.length) return cached;
   }
   return withCache(`spark:${rawSymbol}`, 15 * 60 * 1000, async () => {
-    const sym = normalizeStooqSymbol(rawSymbol);
-    const url = `https://stooq.com/q/d/l/?s=${sym}&i=d`;
-    const res = await proxiedFetch(url, { direct: false });
-    const csv = await res.text();
-    const lines = csv.trim().split('\n');
-    if (lines.length < 2) return [];
-    return lines
-      .slice(1)
-      .slice(-25)
-      .map((line) => parseFloat(line.split(',')[4]))
-      .filter((n) => !isNaN(n));
+    try {
+      const sym = normalizeStooqSymbol(rawSymbol);
+      const url = `https://stooq.com/q/d/l/?s=${sym}&i=d`;
+      const res = await proxiedFetch(url, { direct: false });
+      const csv = await res.text();
+      const lines = csv.trim().split('\n');
+      const values = lines
+        .slice(1)
+        .slice(-25)
+        .map((line) => parseFloat(line.split(',')[4]))
+        .filter((n) => !isNaN(n));
+      if (!values.length) throw new Error('Stooq returned no history');
+      return values;
+    } catch {
+      // Same Stooq-blocking issue as quotes — fall back to Yahoo's chart API.
+      const ysym = toYahooSymbol(rawSymbol);
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ysym)}?range=1mo&interval=1d`;
+      const res = await proxiedFetch(url, { direct: false });
+      const data = await res.json();
+      const closes = data.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
+      return closes.filter((n) => n != null).slice(-25);
+    }
   });
 }
 

@@ -9,7 +9,7 @@ import Parser from 'rss-parser';
 import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FEED_BUNDLES, MARKET_GROUPS, DEFAULT_PORTFOLIO, STATUS_SERVICES } from '../public/shared-config.js';
+import { FEED_BUNDLES, MARKET_GROUPS, DEFAULT_PORTFOLIO, STATUS_SERVICES, normalizeStooqSymbol, toYahooSymbol } from '../public/shared-config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = path.join(__dirname, '../public/data/snapshot.json');
@@ -82,13 +82,7 @@ async function fetchPolymarket() {
   });
 }
 
-function normalizeStooqSymbol(s) {
-  const lower = s.toLowerCase();
-  if (lower.startsWith('^') || lower.includes('.')) return lower;
-  return `${lower}.us`;
-}
-
-async function fetchQuotes(rawSymbols) {
+async function fetchQuotesStooq(rawSymbols) {
   const stooqSymbols = rawSymbols.map(normalizeStooqSymbol).join(',');
   const url = `https://stooq.com/q/l/?s=${stooqSymbols}&f=sd2t2ohlcv&h&e=csv`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
@@ -97,29 +91,77 @@ async function fetchQuotes(rawSymbols) {
   const lines = csv.trim().split('\n');
   const header = lines[0].split(',');
   const rows = {};
+  let any = false;
   lines.slice(1).forEach((line) => {
     const cells = line.split(',');
     const row = {};
     header.forEach((h, i) => (row[h.trim()] = cells[i]));
     const symbol = (row.Symbol || '').toUpperCase();
-    rows[symbol] = { close: parseFloat(row.Close), open: parseFloat(row.Open) };
+    const close = parseFloat(row.Close);
+    if (!isNaN(close)) any = true;
+    rows[symbol] = { close, open: parseFloat(row.Open) };
+  });
+  if (!any) throw new Error('Stooq returned no usable quotes');
+  return rows;
+}
+
+async function fetchQuotesYahoo(rawSymbols) {
+  const yahooSymbols = rawSymbols.map(toYahooSymbol);
+  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${yahooSymbols.map(encodeURIComponent).join(',')}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error(`Yahoo ${res.status}`);
+  const data = await res.json();
+  const results = data.quoteResponse?.result || [];
+  const byYahooSymbol = Object.fromEntries(results.map((r) => [r.symbol, r]));
+  const rows = {};
+  rawSymbols.forEach((raw, i) => {
+    const q = byYahooSymbol[yahooSymbols[i]];
+    const key = normalizeStooqSymbol(raw).toUpperCase();
+    rows[key] = { close: q ? q.regularMarketPrice : NaN, open: q ? q.regularMarketPreviousClose ?? q.regularMarketOpen : NaN };
   });
   return rows;
 }
 
-async function fetchSparkline(rawSymbol) {
+async function fetchQuotes(rawSymbols) {
+  try {
+    return await fetchQuotesStooq(rawSymbols);
+  } catch {
+    return fetchQuotesYahoo(rawSymbols);
+  }
+}
+
+async function fetchSparklineStooq(rawSymbol) {
   const sym = normalizeStooqSymbol(rawSymbol);
   const url = `https://stooq.com/q/d/l/?s=${sym}&i=d`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`Stooq history ${res.status}`);
   const csv = await res.text();
   const lines = csv.trim().split('\n');
-  if (lines.length < 2) return [];
-  return lines
+  const values = lines
     .slice(1)
     .slice(-25)
     .map((line) => parseFloat(line.split(',')[4]))
     .filter((n) => !isNaN(n));
+  if (!values.length) throw new Error('Stooq returned no history');
+  return values;
+}
+
+async function fetchSparklineYahoo(rawSymbol) {
+  const ysym = toYahooSymbol(rawSymbol);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ysym)}?range=1mo&interval=1d`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error(`Yahoo chart ${res.status}`);
+  const data = await res.json();
+  const closes = data.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
+  return closes.filter((n) => n != null).slice(-25);
+}
+
+async function fetchSparkline(rawSymbol) {
+  try {
+    return await fetchSparklineStooq(rawSymbol);
+  } catch {
+    return fetchSparklineYahoo(rawSymbol);
+  }
 }
 
 async function fetchWikiTrending() {

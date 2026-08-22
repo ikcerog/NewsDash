@@ -21,16 +21,33 @@ export const MARKET_GROUPS = {
       { sym: 'xle.us', name: 'Energy' },
       { sym: 'xlv.us', name: 'Health Care' },
       { sym: 'xly.us', name: 'Cons. Discretionary' },
+      { sym: 'xlp.us', name: 'Cons. Staples' },
       { sym: 'xlu.us', name: 'Utilities' },
+      { sym: 'xlre.us', name: 'Real Estate' },
+      { sym: 'xlb.us', name: 'Materials' },
+      { sym: 'xli.us', name: 'Industrials' },
+      { sym: 'xlc.us', name: 'Communication Svcs' },
+    ],
+  },
+  bonds: {
+    label: 'Bonds',
+    symbols: [
+      { sym: 'tlt.us', name: '20+ Yr Treasury' },
+      { sym: 'ief.us', name: '7-10 Yr Treasury' },
+      { sym: 'shy.us', name: '1-3 Yr Treasury' },
+      { sym: 'lqd.us', name: 'Inv. Grade Corp' },
+      { sym: 'hyg.us', name: 'High Yield Corp' },
+      { sym: 'agg.us', name: 'Aggregate Bond' },
     ],
   },
   commodities: {
     label: 'Commodities',
     symbols: [
       { sym: 'gc.f', name: 'Gold' },
-      { sym: 'cl.f', name: 'Crude Oil' },
-      { sym: 'ng.f', name: 'Natural Gas' },
       { sym: 'si.f', name: 'Silver' },
+      { sym: 'hg.f', name: 'Copper' },
+      { sym: 'cl.f', name: 'Crude Oil (WTI)' },
+      { sym: 'ng.f', name: 'Natural Gas' },
     ],
   },
   currencies: {
@@ -39,12 +56,55 @@ export const MARKET_GROUPS = {
       { sym: 'eurusd', name: 'EUR/USD' },
       { sym: 'gbpusd', name: 'GBP/USD' },
       { sym: 'usdjpy', name: 'USD/JPY' },
+      { sym: 'usdcad', name: 'USD/CAD' },
       { sym: 'btcusd', name: 'Bitcoin' },
+      { sym: 'ethusd', name: 'Ethereum' },
     ],
   },
 };
 
-export const DEFAULT_PORTFOLIO = ['AAPL', 'MSFT', 'TSLA', 'NVDA'];
+// A diversified default watchlist spanning tech, finance, retail, and
+// payments — not just a handful of mega-cap tech names.
+export const DEFAULT_PORTFOLIO = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META', 'JPM', 'V', 'WMT'];
+
+// Symbols Stooq references bare (no ".us" market suffix) — forex pairs and
+// crypto. Everything else gets ".us" appended by normalizeStooqSymbol.
+const STOOQ_BARE_SYMBOLS = new Set(['eurusd', 'gbpusd', 'usdjpy', 'usdcad', 'btcusd', 'ethusd']);
+
+export function normalizeStooqSymbol(s) {
+  const lower = s.toLowerCase();
+  if (lower.startsWith('^') || lower.includes('.') || STOOQ_BARE_SYMBOLS.has(lower)) return lower;
+  return `${lower}.us`;
+}
+
+// Yahoo Finance is the fallback quote source when Stooq is unreachable via
+// the CORS proxies (it appears to block/throttle them wholesale). Yahoo
+// uses a different ticker convention for indices/futures/forex/crypto.
+const YAHOO_SYMBOL_OVERRIDES = {
+  '^spx': '^GSPC',
+  '^dji': '^DJI',
+  '^ndq': '^NDX',
+  '^rut': '^RUT',
+  '^vix': '^VIX',
+  'gc.f': 'GC=F',
+  'si.f': 'SI=F',
+  'hg.f': 'HG=F',
+  'cl.f': 'CL=F',
+  'ng.f': 'NG=F',
+  eurusd: 'EURUSD=X',
+  gbpusd: 'GBPUSD=X',
+  usdjpy: 'USDJPY=X',
+  usdcad: 'USDCAD=X',
+  btcusd: 'BTC-USD',
+  ethusd: 'ETH-USD',
+};
+
+export function toYahooSymbol(rawSymbol) {
+  const lower = rawSymbol.toLowerCase();
+  if (YAHOO_SYMBOL_OVERRIDES[lower]) return YAHOO_SYMBOL_OVERRIDES[lower];
+  // Plain stocks/ETFs: strip a trailing ".us" if present, Yahoo uses the bare ticker.
+  return lower.replace(/\.us$/, '').toUpperCase();
+}
 
 export const FEED_BUNDLES = {
   tier1: {
