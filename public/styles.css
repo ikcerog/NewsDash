@@ -91,12 +91,38 @@ body {
 }
 
 .ticker-bar {
+  position: relative;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
   overflow: hidden;
   white-space: nowrap;
   padding: 0.4rem 0;
 }
+.ticker-bar-secondary { background: var(--bg-widget-header); font-size: 0.8rem; }
+.ticker-speed-controls {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0 0.5rem;
+  background: linear-gradient(to right, transparent, var(--bg-elevated) 30%);
+  z-index: 5;
+}
+.ticker-speed-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-widget-header);
+  color: var(--text-muted);
+  border-radius: 6px;
+  width: 1.4rem;
+  height: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.ticker-speed-btn:hover { color: var(--accent); border-color: var(--accent); }
 .ticker-track {
   display: inline-block;
   padding-left: 100%;

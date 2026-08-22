@@ -3,8 +3,20 @@
 // from the browser. Feeds/APIs without CORS headers are routed through a
 // free, open CORS proxy (allorigins.win) as a fallback.
 
-const APP_VERSION = '0.2.1';
+const APP_VERSION = '0.2.2';
 const PATCH_NOTES = [
+  {
+    version: '0.2.2',
+    date: '2026-08-22',
+    notes: [
+      'Fixed stale/wrong headline dates — proxy responses were being cached; requests are now cache-busted.',
+      'Fixed stock quotes 404 — Stooq bulk-quote requests need comma-separated symbols, not "+".',
+      'Replaced dead Detroit-local and Wowhead/ESO feeds with reliable Google News fallbacks.',
+      'Added Trending Now bundle (Google Trends + Reddit r/all).',
+      'Added Trending on Wikipedia, Treasury Yields, and Significant Earthquakes widgets — all free, keyless APIs.',
+      'Added a secondary markets ticker and +/- speed controls for the headline ticker.',
+    ],
+  },
   {
     version: '0.2.1',
     date: '2026-08-22',
@@ -113,11 +125,12 @@ const FEED_BUNDLES = {
   detroit: {
     label: 'Detroit Local',
     feeds: [
-      { name: 'Detroit Free Press', url: 'https://www.freep.com/arc/outboundfeeds/rss/' },
-      { name: 'The Detroit News', url: 'https://www.detroitnews.com/rss/' },
+      { name: 'Detroit Free Press', url: 'https://news.google.com/rss/search?q=site:freep.com+when:2d&hl=en-US&gl=US&ceid=US:en' },
+      { name: 'The Detroit News', url: 'https://news.google.com/rss/search?q=site:detroitnews.com+when:2d&hl=en-US&gl=US&ceid=US:en' },
       { name: 'WXYZ Detroit', url: 'https://www.wxyz.com/rss' },
       { name: 'Fox 2 Detroit', url: 'https://www.fox2detroit.com/rss' },
-      { name: "Crain's Detroit Business", url: 'https://www.crainsdetroit.com/rss.xml' },
+      { name: "Crain's Detroit Business", url: 'https://news.google.com/rss/search?q=site:crainsdetroit.com+when:3d&hl=en-US&gl=US&ceid=US:en' },
+      { name: 'ClickOnDetroit (WDIV)', url: 'https://news.google.com/rss/search?q=site:clickondetroit.com+when:2d&hl=en-US&gl=US&ceid=US:en' },
     ],
   },
   deepwire: {
@@ -135,13 +148,20 @@ const FEED_BUNDLES = {
   gaming: {
     label: 'Gaming',
     feeds: [
-      { name: 'Wowhead News', url: 'https://www.wowhead.com/news/rss' },
-      { name: 'Elder Scrolls Online News', url: 'https://www.elderscrollsonline.com/en-us/rss.xml' },
+      { name: 'Wowhead (Google News)', url: 'https://news.google.com/rss/search?q=site:wowhead.com+when:3d&hl=en-US&gl=US&ceid=US:en' },
+      { name: 'Elder Scrolls Online (Google News)', url: 'https://news.google.com/rss/search?q=%22Elder+Scrolls+Online%22+when:7d&hl=en-US&gl=US&ceid=US:en' },
       { name: 'Reddit r/wow', url: 'https://www.reddit.com/r/wow/.rss' },
       { name: 'Reddit r/elderscrollsonline', url: 'https://www.reddit.com/r/elderscrollsonline/.rss' },
       { name: 'Reddit r/Games', url: 'https://www.reddit.com/r/Games/.rss' },
       { name: 'IGN', url: 'https://feeds.ign.com/ign/all' },
       { name: 'PC Gamer', url: 'https://www.pcgamer.com/rss/' },
+    ],
+  },
+  trending: {
+    label: 'Trending Now',
+    feeds: [
+      { name: 'Google Trends (US)', url: 'https://trends.google.com/trending/rss?geo=US' },
+      { name: 'Reddit r/all', url: 'https://www.reddit.com/r/all/top/.rss?t=day' },
     ],
   },
 };
@@ -175,6 +195,10 @@ function defaultState() {
       { id: uid(), type: 'polymarket', config: { category: '' } },
       { id: uid(), type: 'feed-bundle', config: { bundle: 'deepwire' } },
       { id: uid(), type: 'feed-bundle', config: { bundle: 'gaming' } },
+      { id: uid(), type: 'feed-bundle', config: { bundle: 'trending' } },
+      { id: uid(), type: 'wiki-trending', config: {} },
+      { id: uid(), type: 'bonds', config: {} },
+      { id: uid(), type: 'earthquakes', config: {} },
     ],
   };
 }
@@ -194,16 +218,20 @@ function saveState() {
 async function proxiedFetch(url, { direct = true } = {}) {
   if (direct) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(9000) });
+      const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
       if (res.ok) return res;
     } catch (e) {
       /* fall through to proxy chain */
     }
   }
+  // Cache-bust the *target* URL so the proxy (which often caches by exact
+  // request URL) doesn't hand back a stale capture of the feed from weeks
+  // or months ago — this was causing headlines to show wildly wrong dates.
+  const bustUrl = url + (url.includes('?') ? '&' : '?') + '_cb=' + Date.now();
   let lastErr;
   for (const buildProxyUrl of CORS_PROXIES) {
     try {
-      const res = await fetch(buildProxyUrl(url), { signal: AbortSignal.timeout(10000) });
+      const res = await fetch(buildProxyUrl(bustUrl), { cache: 'no-store', signal: AbortSignal.timeout(10000) });
       if (res.ok) return res;
       lastErr = new Error(`Proxy responded ${res.status}`);
     } catch (e) {
@@ -289,7 +317,7 @@ function normalizeStooqSymbol(s) {
 }
 
 async function fetchQuotesRaw(rawSymbols) {
-  const stooqSymbols = rawSymbols.map(normalizeStooqSymbol).join('+');
+  const stooqSymbols = rawSymbols.map(normalizeStooqSymbol).join(',');
   const url = `https://stooq.com/q/l/?s=${stooqSymbols}&f=sd2t2ohlcv&h&e=csv`;
   const res = await proxiedFetch(url, { direct: false });
   const csv = await res.text();
@@ -339,6 +367,68 @@ function sparklineSVG(values, cls) {
 }
 
 // ---------------------------------------------------------------------------
+// Wikipedia trending — Wikimedia's REST pageviews API is free, keyless,
+// and CORS-enabled, so it's fetched directly (no proxy needed).
+// ---------------------------------------------------------------------------
+async function fetchWikiTrending() {
+  // Top-articles data for "today" usually isn't published yet; use yesterday.
+  const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${y}/${m}/${day}`;
+  const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
+  if (!res.ok) throw new Error(`Wikimedia ${res.status}`);
+  const data = await res.json();
+  const articles = data.items?.[0]?.articles || [];
+  const skip = new Set(['Main_Page', 'Special:Search', 'Special:SpecialPages']);
+  return articles
+    .filter((a) => !skip.has(a.article) && !a.article.startsWith('Special:'))
+    .slice(0, 15)
+    .map((a) => ({
+      title: a.article.replace(/_/g, ' '),
+      views: a.views,
+      link: `https://en.wikipedia.org/wiki/${a.article}`,
+    }));
+}
+
+// ---------------------------------------------------------------------------
+// US Treasury daily par yield curve — free, keyless, no CORS headers so
+// routed through the proxy chain.
+// ---------------------------------------------------------------------------
+async function fetchTreasuryYields() {
+  const year = new Date().getFullYear();
+  const url = `https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/${year}/all?type=daily_treasury_yield_curve&field_tdr_date_value=${year}&page&_format=csv`;
+  const res = await proxiedFetch(url, { direct: false });
+  const csv = await res.text();
+  const lines = csv.trim().split('\n');
+  if (lines.length < 2) return { date: null, rates: [] };
+  const header = lines[0].split(',').map((h) => h.trim().replace(/"/g, ''));
+  const lastLine = lines[lines.length - 1].split(',').map((c) => c.trim().replace(/"/g, ''));
+  const rates = header.slice(1).map((label, i) => ({ label, value: parseFloat(lastLine[i + 1]) })).filter((r) => !isNaN(r.value));
+  return { date: lastLine[0], rates };
+}
+
+// ---------------------------------------------------------------------------
+// USGS earthquakes — free, keyless, CORS-enabled GeoJSON feed.
+// ---------------------------------------------------------------------------
+async function fetchEarthquakes() {
+  const url = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson';
+  const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
+  if (!res.ok) throw new Error(`USGS ${res.status}`);
+  const data = await res.json();
+  return (data.features || [])
+    .sort((a, b) => b.properties.time - a.properties.time)
+    .slice(0, 15)
+    .map((f) => ({
+      place: f.properties.place,
+      mag: f.properties.mag,
+      time: f.properties.time,
+      link: f.properties.url,
+    }));
+}
+
+// ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
 const grid = document.getElementById('widgetGrid');
@@ -361,11 +451,23 @@ function widgetTitle(widget) {
   if (widget.type === 'polymarket') return widget.config.category ? `Polymarket · ${widget.config.category}` : 'Polymarket · All';
   if (widget.type === 'portfolio') return 'Stock Portfolio';
   if (widget.type === 'markets-overview') return 'Markets Overview';
+  if (widget.type === 'wiki-trending') return 'Trending on Wikipedia';
+  if (widget.type === 'bonds') return 'Treasury Yields';
+  if (widget.type === 'earthquakes') return 'Significant Earthquakes';
   return 'Widget';
 }
 
 function widgetIcon(widget) {
-  return { 'feed-bundle': '📰', 'feed-custom': '📡', polymarket: '📊', portfolio: '💼', 'markets-overview': '📈' }[widget.type] || '▫';
+  return {
+    'feed-bundle': '📰',
+    'feed-custom': '📡',
+    polymarket: '📊',
+    portfolio: '💼',
+    'markets-overview': '📈',
+    'wiki-trending': '📚',
+    bonds: '🏛️',
+    earthquakes: '🌎',
+  }[widget.type] || '▫';
 }
 
 function renderGrid() {
@@ -478,6 +580,50 @@ async function loadWidgetData(widget, el) {
     } else if (widget.type === 'markets-overview') {
       body.innerHTML = '';
       body.appendChild(await renderMarketsOverview());
+    } else if (widget.type === 'wiki-trending') {
+      const articles = await fetchWikiTrending();
+      body.innerHTML = '';
+      if (!articles.length) body.innerHTML = '<div class="empty-state">No data yet for today.</div>';
+      articles.forEach((a, i) => {
+        const div = document.createElement('div');
+        div.className = 'feed-item';
+        div.innerHTML = `
+          <a href="${escapeAttr(a.link)}" target="_blank" rel="noopener noreferrer">#${i + 1} ${escapeHtml(a.title)}</a>
+          <div class="meta">${a.views.toLocaleString()} views</div>
+        `;
+        body.appendChild(div);
+      });
+    } else if (widget.type === 'bonds') {
+      const { date, rates } = await fetchTreasuryYields();
+      body.innerHTML = '';
+      if (!rates.length) {
+        body.innerHTML = '<div class="empty-state">No yield data available.</div>';
+      } else {
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.style.marginBottom = '0.5rem';
+        meta.textContent = `As of ${escapeHtml(date || '')}`;
+        body.appendChild(meta);
+        const table = document.createElement('table');
+        table.className = 'markets-table';
+        table.innerHTML = `<tbody>${rates
+          .map((r) => `<tr><td class="mo-name">${escapeHtml(r.label)}</td><td class="mo-price">${r.value.toFixed(2)}%</td></tr>`)
+          .join('')}</tbody>`;
+        body.appendChild(table);
+      }
+    } else if (widget.type === 'earthquakes') {
+      const quakes = await fetchEarthquakes();
+      body.innerHTML = '';
+      if (!quakes.length) body.innerHTML = '<div class="empty-state">No significant earthquakes this week.</div>';
+      quakes.forEach((q) => {
+        const div = document.createElement('div');
+        div.className = 'feed-item';
+        div.innerHTML = `
+          <a href="${escapeAttr(q.link)}" target="_blank" rel="noopener noreferrer">M${q.mag?.toFixed(1) ?? '?'} — ${escapeHtml(q.place)}</a>
+          <div class="meta">${escapeHtml(timeAgo(q.time))}</div>
+        `;
+        body.appendChild(div);
+      });
     }
   } catch (err) {
     body.innerHTML = `<div class="error-state">Failed to load: ${escapeHtml(err.message)}</div>`;
@@ -674,6 +820,49 @@ async function loadTicker() {
   }
 }
 
+async function loadSecondaryTicker() {
+  const track = document.getElementById('tickerTrack2');
+  try {
+    const allSymbols = Object.values(MARKET_GROUPS).flatMap((g) => g.symbols);
+    const rows = await fetchQuotesRaw(allSymbols.map((s) => s.sym));
+    const bySymbol = Object.fromEntries(rows.map((r) => [r.symbol, r]));
+    const items = allSymbols
+      .map((s) => {
+        const q = bySymbol[normalizeStooqSymbol(s.sym).toUpperCase()];
+        if (!q || isNaN(q.close)) return null;
+        const chg = q.close - q.open;
+        const pct = q.open ? (chg / q.open) * 100 : 0;
+        const cls = chg >= 0 ? 'pos' : 'neg';
+        const arrow = chg >= 0 ? '▲' : '▼';
+        return `<span class="tag">${escapeHtml(s.name)}</span><span class="${cls}">${q.close.toFixed(2)} ${arrow} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</span>`;
+      })
+      .filter(Boolean);
+    if (!items.length) {
+      track.textContent = 'Market data unavailable right now.';
+      return;
+    }
+    track.innerHTML = items.map((html) => `<span style="margin-right:2.5rem;display:inline-block;">${html}</span>`).join('');
+  } catch (err) {
+    track.textContent = 'Market data unavailable right now.';
+  }
+}
+
+function applyTickerSpeed() {
+  const seconds = state.tickerSpeed || 60;
+  document.getElementById('tickerTrack').style.animationDuration = `${seconds}s`;
+  document.getElementById('tickerTrack2').style.animationDuration = `${seconds * 1.3}s`;
+}
+document.getElementById('tickerSlower').addEventListener('click', () => {
+  state.tickerSpeed = Math.min(150, (state.tickerSpeed || 60) + 15);
+  saveState();
+  applyTickerSpeed();
+});
+document.getElementById('tickerFaster').addEventListener('click', () => {
+  state.tickerSpeed = Math.max(20, (state.tickerSpeed || 60) - 15);
+  saveState();
+  applyTickerSpeed();
+});
+
 // ---------------------------------------------------------------------------
 // Modals
 // ---------------------------------------------------------------------------
@@ -775,6 +964,9 @@ function escapeAttr(str) {
 // Init
 // ---------------------------------------------------------------------------
 applyTheme();
+applyTickerSpeed();
 renderGrid();
 loadTicker();
+loadSecondaryTicker();
 setInterval(loadTicker, 5 * 60 * 1000);
+setInterval(loadSecondaryTicker, 2 * 60 * 1000);

@@ -11,7 +11,7 @@
     <div class="brand">
       <span class="brand-mark">◆</span>
       <span class="brand-name">NewsDash</span>
-      <button id="versionChip" class="version-chip" title="View patch notes">v0.2.1</button>
+      <button id="versionChip" class="version-chip" title="View patch notes">v0.2.2</button>
     </div>
     <div class="header-actions">
       <button id="addWidgetBtn" class="btn btn-primary">+ Add Widget</button>
@@ -20,7 +20,14 @@
   </header>
 
   <div id="tickerBar" class="ticker-bar" aria-label="Breaking headlines ticker">
+    <div class="ticker-speed-controls">
+      <button id="tickerSlower" class="ticker-speed-btn" title="Slower">−</button>
+      <button id="tickerFaster" class="ticker-speed-btn" title="Faster">+</button>
+    </div>
     <div id="tickerTrack" class="ticker-track">Loading headlines…</div>
+  </div>
+  <div id="tickerBar2" class="ticker-bar ticker-bar-secondary" aria-label="Markets ticker">
+    <div id="tickerTrack2" class="ticker-track">Loading markets…</div>
   </div>
 
   <main id="widgetGrid" class="widget-grid"></main>
@@ -45,6 +52,9 @@
             <option value="polymarket">Polymarket Forecasts</option>
             <option value="portfolio">Stock Portfolio</option>
             <option value="markets-overview">Markets Overview</option>
+            <option value="wiki-trending">Trending on Wikipedia</option>
+            <option value="bonds">Treasury Yields</option>
+            <option value="earthquakes">Significant Earthquakes</option>
           </select>
         </label>
 
@@ -57,6 +67,7 @@
               <option value="detroit">Detroit Local</option>
               <option value="deepwire">Deep Wire (HN, Reddit, Politico…)</option>
               <option value="gaming">Gaming (WoWhead, ESO, Reddit…)</option>
+              <option value="trending">Trending Now (Google Trends, Reddit)</option>
             </select>
           </label>
         </div>
