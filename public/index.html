@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
 <title>NewsDash</title>
-<link rel="icon" type="image/svg+xml" href="favicon.svg?v=0.2.10" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg?v=0.2.11" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <!-- Loaded non-render-blocking (media=print swapped to all on load) so a
@@ -14,7 +14,7 @@
 <noscript><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Science+Gothic:wght@400..900&display=swap" rel="stylesheet" /></noscript>
 <!-- Cache-bust on every release (?v=APP_VERSION) so a deploy can't leave
      browsers/CDN edges serving a stale stylesheet against fresh HTML. -->
-<link rel="stylesheet" href="styles.css?v=0.2.10" />
+<link rel="stylesheet" href="styles.css?v=0.2.11" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
@@ -22,7 +22,7 @@
     <div class="brand">
       <span class="brand-mark">◆</span>
       <span class="brand-name">NewsDash</span>
-      <button id="versionChip" class="version-chip" title="View patch notes">v0.2.10</button>
+      <button id="versionChip" class="version-chip" title="View patch notes">v0.2.11</button>
     </div>
     <button id="mobileMenuBtn" class="icon-btn mobile-menu-btn" aria-label="Menu" aria-expanded="false">☰</button>
     <div id="headerControls" class="header-controls">
@@ -37,14 +37,23 @@
   </header>
 
   <div id="tickerBar" class="ticker-bar" aria-label="Breaking headlines ticker">
-    <div class="ticker-speed-controls">
-      <button id="tickerSlower" class="ticker-speed-btn" title="Slower">−</button>
-      <button id="tickerFaster" class="ticker-speed-btn" title="Faster">+</button>
+    <div class="ticker-scroll-area">
+      <div id="tickerTrack" class="ticker-track">Loading headlines…</div>
     </div>
-    <div id="tickerTrack" class="ticker-track">Loading headlines…</div>
+    <div class="ticker-speed-controls">
+      <button id="tickerSlower" class="ticker-speed-btn" title="Slow down ticker">−</button>
+      <button id="tickerFaster" class="ticker-speed-btn" title="Speed up ticker">+</button>
+    </div>
   </div>
   <div id="tickerBar2" class="ticker-bar ticker-bar-secondary" aria-label="Markets ticker">
-    <div id="tickerTrack2" class="ticker-track">Loading markets…</div>
+    <div class="ticker-scroll-area">
+      <div id="tickerTrack2" class="ticker-track">Loading markets…</div>
+    </div>
+  </div>
+
+  <div id="trendingTopicsBar" class="trending-topics-bar" aria-label="Trending topics across all widgets">
+    <span class="trending-label">🔥 Trending</span>
+    <div id="trendingTopicsChips" class="trending-chips"><span class="meta">Analyzing…</span></div>
   </div>
 
   <div class="app-body">
@@ -79,6 +88,7 @@
             <option value="us-alerts-map">US Weather Alerts Map (nationwide)</option>
             <option value="disaster-map">Global Disaster Map (RSOE EDIS link)</option>
             <option value="service-status">Service Status (Cloudflare, GitHub, OpenAI…)</option>
+            <option value="cryptrack">CrypTrack (cryptid/UFO sightings map)</option>
           </select>
         </label>
 
@@ -96,6 +106,7 @@
               <option value="security">Security & Deep Wire (Krebs, HN…)</option>
               <option value="ainews">AI News (Anthropic, OpenAI, DeepMind…)</option>
               <option value="cloudops">Cloud & Infra (AWS, Cloudflare, GitHub…)</option>
+              <option value="popculture">Pop Culture (Comics, Toys, Gaming…)</option>
             </select>
           </label>
         </div>
@@ -154,6 +165,6 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-  <script src="app.js?v=0.2.10" type="module"></script>
+  <script src="app.js?v=0.2.11" type="module"></script>
 </body>
 </html>

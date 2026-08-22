@@ -74,7 +74,11 @@ async function fetchAllBundles() {
 async function fetchPolymarket() {
   const url = new URL('https://gamma-api.polymarket.com/markets');
   url.searchParams.set('closed', 'false');
-  url.searchParams.set('limit', '150');
+  // Polymarket's /markets response never populates category/tags, so
+  // client-side category matching relies on question text — sports/esports
+  // dominate the top of the volume-sorted list, so store a much bigger
+  // pool so a category like politics has real matches to search through.
+  url.searchParams.set('limit', '500');
   url.searchParams.set('order', 'volume24hr');
   url.searchParams.set('ascending', 'false');
   const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
@@ -210,9 +214,18 @@ async function fetchTreasuryYields() {
   const lines = csv.trim().split('\n');
   if (lines.length < 2) return { date: null, rates: [] };
   const header = lines[0].split(',').map((h) => h.trim().replace(/"/g, ''));
-  const lastLine = lines[lines.length - 1].split(',').map((c) => c.trim().replace(/"/g, ''));
-  const rates = header.slice(1).map((label, i) => ({ label, value: parseFloat(lastLine[i + 1]) })).filter((r) => !isNaN(r.value));
-  return { date: lastLine[0], rates };
+  // Treasury's CSV isn't guaranteed ascending or descending — pick the row
+  // with the latest actual date instead of assuming first/last (their
+  // year-to-date file lists newest-first, so "last line" was grabbing the
+  // oldest entry in the file).
+  const dataRows = lines.slice(1).map((l) => l.split(',').map((c) => c.trim().replace(/"/g, '')));
+  const latestRow = dataRows.reduce((best, row) => {
+    const d = new Date(row[0]);
+    return !isNaN(d) && (!best || d > new Date(best[0])) ? row : best;
+  }, null);
+  if (!latestRow) return { date: null, rates: [] };
+  const rates = header.slice(1).map((label, i) => ({ label, value: parseFloat(latestRow[i + 1]) })).filter((r) => !isNaN(r.value));
+  return { date: latestRow[0], rates };
 }
 
 async function fetchEarthquakes() {
@@ -290,11 +303,27 @@ async function main() {
     sparklines[normalizeStooqSymbol(s).toUpperCase()] = sparklineResults[i].status === 'fulfilled' ? sparklineResults[i].value : [];
   });
 
+  // The dedicated quote endpoints (Stooq /q/l/, Yahoo v7/quote) can fail
+  // wholesale even when the per-symbol history endpoints they share
+  // infrastructure with succeed (observed: 0/43 quotes but 43/43
+  // sparklines in one run) — derive a quote from each sparkline's last two
+  // closes for any symbol the quote fetch didn't cover.
+  const finalQuotes = { ...(quotes || {}) };
+  for (const [key, values] of Object.entries(sparklines)) {
+    const existing = finalQuotes[key];
+    if ((!existing || isNaN(existing.close)) && values.length >= 2) {
+      finalQuotes[key] = { close: values[values.length - 1], open: values[values.length - 2] };
+    }
+  }
+  if (!quotes || Object.keys(quotes).length === 0) {
+    console.log(`quotes: derived ${Object.keys(finalQuotes).length} from sparkline history (direct quote fetch returned nothing)`);
+  }
+
   const snapshot = {
     generatedAt: new Date().toISOString(),
     feeds: feeds || {},
     polymarket: polymarket || [],
-    quotes: quotes || {},
+    quotes: finalQuotes,
     sparklines,
     wikiTrending: wikiTrending || [],
     treasury: treasury || { date: null, rates: [] },

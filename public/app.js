@@ -11,14 +11,30 @@ import {
   FEED_BUNDLES,
   DEFAULT_PORTFOLIO,
   WIDGET_CATEGORIES,
+  BUNDLE_CATEGORY_OVERRIDES,
   CATEGORY_LABELS,
   STATUS_SERVICES,
+  POLYMARKET_CATEGORY_KEYWORDS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.2.10';
+} from './shared-config.js?v=0.2.11';
 
-const APP_VERSION = '0.2.10';
+const APP_VERSION = '0.2.11';
 const PATCH_NOTES = [
+  {
+    version: '0.2.11',
+    date: '2026-08-22',
+    notes: [
+      'Fixed Polymarket · politics coming back empty: the /markets endpoint never populates category/tags at all, and question text rarely contains the literal word "politics" — added real keyword expansion (Trump, Fed, election, senate, etc.) and a much larger search pool (500 markets instead of 100, which was dominated by sports by volume).',
+      'Fixed Treasury Yields showing a stale date: the source CSV lists newest-first, not oldest-first, so grabbing the "last line" was picking the oldest entry in the file. Now picks the row with the actual latest date.',
+      'Fixed empty Markets Overview/Portfolio quotes: when the direct quote endpoints fail but per-symbol price history succeeds (observed in production), quotes are now derived from the last two closes in that history instead of just giving up.',
+      'Redesigned the ticker speed controls: moved out of an overlay-with-gradient hack into real layout space, so they no longer cover scrolling headline text.',
+      'Fixed the version chip being hidden on mobile — now shown at a smaller size instead of removed.',
+      'Added a CrypTrack widget (embeds ikcerog/cryptrack, a live Bigfoot/UFO sightings map).',
+      'Added a Pop Culture feed bundle: Comic Book Resources, Bleeding Cool, ScreenRant, Polygon, Kotaku, r/comicbooks, r/ActionFigures.',
+      'Added a Trending Topics bar: pure client-side word-frequency analysis across every currently-loaded headline/market, no network call — click a word to filter by it.',
+    ],
+  },
   {
     version: '0.2.10',
     date: '2026-08-22',
@@ -222,6 +238,8 @@ function defaultState() {
       { id: uid(), type: 'feed-bundle', config: { bundle: 'security' } },
       { id: uid(), type: 'feed-bundle', config: { bundle: 'ainews' } },
       { id: uid(), type: 'feed-bundle', config: { bundle: 'cloudops' } },
+      { id: uid(), type: 'feed-bundle', config: { bundle: 'popculture' } },
+      { id: uid(), type: 'cryptrack', config: {} },
     ],
   };
 }
@@ -384,14 +402,18 @@ async function fetchBundle(bundleKey) {
   }));
 }
 
+function polymarketCategoryMatch(m, category) {
+  const cat = category.toLowerCase();
+  const hay = `${m.question || ''} ${m.category || ''} ${(m.tags || []).join(' ')}`.toLowerCase();
+  const keywords = POLYMARKET_CATEGORY_KEYWORDS[cat];
+  if (keywords) return keywords.some((kw) => hay.includes(kw));
+  return hay.includes(cat);
+}
+
 function filterPolymarketList(markets, category, limit = 15) {
   let filtered = markets;
   if (category) {
-    const cat = category.toLowerCase();
-    filtered = filtered.filter((m) => {
-      const hay = `${m.question || ''} ${m.category || ''} ${(m.tags || []).join(' ')}`.toLowerCase();
-      return hay.includes(cat);
-    });
+    filtered = filtered.filter((m) => polymarketCategoryMatch(m, category));
   }
   return filtered.slice(0, limit).map((m) => ({
     question: m.question,
@@ -412,7 +434,11 @@ async function fetchPolymarket(category, limit = 15) {
 async function fetchPolymarketUncached(category, limit = 15) {
   const url = new URL('https://gamma-api.polymarket.com/markets');
   url.searchParams.set('closed', 'false');
-  url.searchParams.set('limit', '100');
+  // Polymarket's /markets response never populates category/tags, so
+  // matching relies on question text — sports/esports dominate the top of
+  // the volume-sorted list, so a larger pool is needed for a category like
+  // politics to have real matches to search through.
+  url.searchParams.set('limit', '500');
   url.searchParams.set('order', 'volume24hr');
   url.searchParams.set('ascending', 'false');
 
@@ -421,11 +447,7 @@ async function fetchPolymarketUncached(category, limit = 15) {
   let markets = Array.isArray(data) ? data : data.markets || [];
 
   if (category) {
-    const cat = category.toLowerCase();
-    markets = markets.filter((m) => {
-      const hay = `${m.question || ''} ${m.category || ''} ${(m.tags || []).join(' ')}`.toLowerCase();
-      return hay.includes(cat);
-    });
+    markets = markets.filter((m) => polymarketCategoryMatch(m, category));
   }
 
   return markets.slice(0, limit).map((m) => {
@@ -621,9 +643,16 @@ async function fetchTreasuryYields() {
     const lines = csv.trim().split('\n');
     if (lines.length < 2) return { date: null, rates: [] };
     const header = lines[0].split(',').map((h) => h.trim().replace(/"/g, ''));
-    const lastLine = lines[lines.length - 1].split(',').map((c) => c.trim().replace(/"/g, ''));
-    const rates = header.slice(1).map((label, i) => ({ label, value: parseFloat(lastLine[i + 1]) })).filter((r) => !isNaN(r.value));
-    return { date: lastLine[0], rates };
+    // Treasury's CSV isn't guaranteed ascending or descending — pick the
+    // row with the latest actual date instead of assuming first/last.
+    const dataRows = lines.slice(1).map((l) => l.split(',').map((c) => c.trim().replace(/"/g, '')));
+    const latestRow = dataRows.reduce((best, row) => {
+      const d = new Date(row[0]);
+      return !isNaN(d) && (!best || d > new Date(best[0])) ? row : best;
+    }, null);
+    if (!latestRow) return { date: null, rates: [] };
+    const rates = header.slice(1).map((label, i) => ({ label, value: parseFloat(latestRow[i + 1]) })).filter((r) => !isNaN(r.value));
+    return { date: latestRow[0], rates };
   });
 }
 
@@ -780,6 +809,7 @@ function widgetTitle(widget) {
   if (widget.type === 'disaster-map') return 'Global Disaster Map';
   if (widget.type === 'us-alerts-map') return 'US Weather Alerts Map';
   if (widget.type === 'service-status') return 'Service Status';
+  if (widget.type === 'cryptrack') return 'CrypTrack';
   return 'Widget';
 }
 
@@ -797,7 +827,15 @@ function widgetIcon(widget) {
     'disaster-map': '🗺️',
     'us-alerts-map': '⚠️',
     'service-status': '🟢',
+    cryptrack: '🛸',
   }[widget.type] || '▫';
+}
+
+function getWidgetCategory(widget) {
+  if (widget.type === 'feed-bundle' && BUNDLE_CATEGORY_OVERRIDES[widget.config.bundle]) {
+    return BUNDLE_CATEGORY_OVERRIDES[widget.config.bundle];
+  }
+  return WIDGET_CATEGORIES[widget.type] || 'other';
 }
 
 function renderGrid() {
@@ -812,7 +850,7 @@ function renderWidget(widget, index = 0) {
   el.className = 'widget';
   el.draggable = true;
   el.dataset.id = widget.id;
-  el.dataset.category = WIDGET_CATEGORIES[widget.type] || 'other';
+  el.dataset.category = getWidgetCategory(widget);
 
   el.innerHTML = `
     <div class="widget-header">
@@ -1036,6 +1074,16 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
       })
       .join('')}</tbody>`;
     body.appendChild(table);
+  } else if (widget.type === 'cryptrack') {
+    body.innerHTML = `
+      <iframe class="${focus ? 'widget-iframe widget-iframe-large' : 'widget-iframe'}"
+        src="https://ikcerog.github.io/cryptrack/" loading="lazy"
+        title="CrypTrack — global cryptid sightings atlas"></iframe>
+      <div class="meta" style="margin-top:0.4rem;">
+        Live Bigfoot/UFO sightings map & charts —
+        <a href="https://ikcerog.github.io/cryptrack/" target="_blank" rel="noopener noreferrer">open full site ↗</a>
+      </div>
+    `;
   }
 }
 
@@ -1453,7 +1501,7 @@ function initSidebar() {
   const sidebar = document.getElementById('sidebar');
   const counts = {};
   state.widgets.forEach((w) => {
-    const cat = WIDGET_CATEGORIES[w.type] || 'other';
+    const cat = getWidgetCategory(w);
     counts[cat] = (counts[cat] || 0) + 1;
   });
   const cats = ['all', ...Object.keys(CATEGORY_LABELS).filter((c) => counts[c])];
@@ -1499,6 +1547,72 @@ document.getElementById('globalSearch').addEventListener('input', (e) => {
     group.classList.toggle('search-hidden', !anyVisible);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Trending Topics — pure client-side word-frequency analysis over whatever
+// headlines/markets are currently loaded across all widgets. No API, no
+// network call; it's just counting words already on the page. Clicking a
+// chip feeds it into the existing search filter.
+// ---------------------------------------------------------------------------
+const TRENDING_STOPWORDS = new Set([
+  'the', 'a', 'an', 'to', 'of', 'in', 'on', 'and', 'for', 'is', 'are', 'was',
+  'were', 'with', 'at', 'by', 'from', 'as', 'that', 'this', 'it', 'its', 'be',
+  'has', 'have', 'had', 'will', 'would', 'can', 'could', 'after', 'before',
+  'over', 'under', 'says', 'say', 'said', 'new', 'who', 'what', 'when',
+  'where', 'why', 'how', 'but', 'not', 'you', 'your', 'our', 'their', 'his',
+  'her', 'they', 'them', 'we', 'if', 'than', 'then', 'more', 'most', 'some',
+  'all', 'one', 'two', 'three', 'now', 'still', 'also', 'just', 'like',
+  'get', 'gets', 'got', 'into', 'out', 'off', 'about', 'amid', 'per', 'via',
+  'vs', 'game', 'day', 'week', 'first', 'top', 'best', 'here', 'there',
+]);
+
+function extractTrendingTopics(limit = 15) {
+  const texts = [
+    ...document.querySelectorAll('.feed-item a'),
+    ...document.querySelectorAll('.market-item .q'),
+  ].map((el) => el.textContent || '');
+  const counts = new Map();
+  for (const text of texts) {
+    const words = text
+      .toLowerCase()
+      .replace(/['’]/g, '')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean);
+    const seenInThisHeadline = new Set();
+    for (const w of words) {
+      if (w.length < 3 || TRENDING_STOPWORDS.has(w) || /^\d+$/.test(w)) continue;
+      if (seenInThisHeadline.has(w)) continue; // one repetitive title shouldn't dominate
+      seenInThisHeadline.add(w);
+      counts.set(w, (counts.get(w) || 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .filter(([, c]) => c >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit);
+}
+
+function updateTrendingTopics() {
+  const container = document.getElementById('trendingTopicsChips');
+  if (!container) return;
+  const topics = extractTrendingTopics();
+  if (!topics.length) {
+    container.innerHTML = '<span class="meta">Not enough loaded yet…</span>';
+    return;
+  }
+  container.innerHTML = topics
+    .map(([word, count]) => `<button class="trend-chip" data-word="${escapeAttr(word)}">${escapeHtml(word)}<span class="trend-count">${count}</span></button>`)
+    .join('');
+  container.querySelectorAll('.trend-chip').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const search = document.getElementById('globalSearch');
+      search.value = btn.dataset.word;
+      search.dispatchEvent(new Event('input'));
+      search.focus();
+    });
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Theme
@@ -1553,8 +1667,10 @@ applyTickerSpeed();
   renderGrid();
   loadTicker();
   loadSecondaryTicker();
+  setTimeout(updateTrendingTopics, 4000); // give widgets a moment to populate
 })();
 
 setInterval(loadTicker, 5 * 60 * 1000);
 setInterval(loadSecondaryTicker, 2 * 60 * 1000);
 setInterval(loadSnapshot, 10 * 60 * 1000);
+setInterval(updateTrendingTopics, 60 * 1000);

@@ -212,6 +212,36 @@ export const FEED_BUNDLES = {
       { name: 'Netlify (Google News)', url: 'https://news.google.com/rss/search?q=site:netlify.com+when:7d&hl=en-US&gl=US&ceid=US:en' },
     ],
   },
+  popculture: {
+    label: 'Pop Culture',
+    feeds: [
+      { name: 'Comic Book Resources', url: 'https://www.cbr.com/feed/' },
+      { name: 'Bleeding Cool', url: 'https://bleedingcool.com/feed/' },
+      { name: 'ScreenRant', url: 'https://screenrant.com/feed/' },
+      { name: 'Polygon', url: 'https://www.polygon.com/rss/index.xml' },
+      { name: 'Kotaku', url: 'https://kotaku.com/rss' },
+      { name: 'Reddit r/comicbooks', url: 'https://www.reddit.com/r/comicbooks/.rss' },
+      { name: 'Reddit r/ActionFigures', url: 'https://www.reddit.com/r/ActionFigures/.rss' },
+    ],
+  },
+};
+
+// Quick-filter presets for the Polymarket widget. Polymarket's markets
+// endpoint never populates category/tags (both are always empty on
+// /markets), and question text is phrased concretely ("Will Trump...",
+// "Will the Fed...") rather than containing the category word itself — so
+// a literal "politics" substring match structurally never finds anything.
+// These map a preset to the real vocabulary that shows up in questions.
+export const POLYMARKET_CATEGORY_KEYWORDS = {
+  politics: [
+    'trump', 'biden', 'harris', 'election', 'president', 'senate', 'congress',
+    'governor', 'fed ', 'federal reserve', 'tariff', 'shutdown', 'impeach',
+    'supreme court', 'parliament', 'prime minister', 'primary', 'cabinet',
+    'republican', 'democrat', 'vote', 'poll ', 'nominee', 'inaugur',
+  ],
+  crypto: ['crypto', 'bitcoin', 'btc', 'ethereum', 'eth ', 'solana', 'coin', 'blockchain'],
+  sports: ['nfl', 'nba', 'mlb', 'nhl', 'soccer', 'football', 'basketball', 'tennis', 'ufc', 'boxing', 'olympic', 'championship', 'win on 20'],
+  business: ['stock', 'ipo', 'earnings', 'ceo ', 'merger', 'acquisition', 'bankrupt'],
 };
 
 // Free, keyless Statuspage.io (Atlassian) v2 summary endpoints. Any entry
@@ -242,6 +272,13 @@ export const WIDGET_CATEGORIES = {
   'disaster-map': 'safety',
   'us-alerts-map': 'safety',
   'service-status': 'infra',
+  cryptrack: 'popculture',
+};
+
+// feed-bundle widgets are categorized uniformly by type above; this bundle
+// gets its own sidebar section instead of falling into generic "News".
+export const BUNDLE_CATEGORY_OVERRIDES = {
+  popculture: 'popculture',
 };
 
 export const CATEGORY_LABELS = {
@@ -251,4 +288,5 @@ export const CATEGORY_LABELS = {
   trends: 'Trends',
   safety: 'Safety & Alerts',
   infra: 'Infrastructure',
+  popculture: 'Pop Culture',
 };
