@@ -44,27 +44,37 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-// Reddit's .rss endpoints 403 direct requests from GitHub Actions' shared IP
-// ranges outright — confirmed in production across both www.reddit.com and
-// old.reddit.com, and independent of User-Agent. Routing through the same
-// free CORS proxy the client uses sidesteps the IP block.
-async function fetchRedditViaProxy(url) {
-  const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
-  const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
-  if (!res.ok) throw new Error(`reddit proxy ${res.status}`);
-  const xml = await res.text();
-  return parser.parseString(xml);
-}
-
-async function fetchFeedItems(url) {
-  const feed = url.includes('reddit.com')
-    ? await withTimeout(fetchRedditViaProxy(url), 15000, 'parseURL')
-    : await withTimeout(parser.parseURL(url), 15000, 'parseURL');
+function mapFeedItems(feed) {
   return (feed.items || []).slice(0, 12).map((it) => ({
     title: it.title || '(untitled)',
     link: it.link || '#',
     pubDate: it.pubDate || it.isoDate || null,
   }));
+}
+
+// Some Reddit subs (not all — r/news works fine direct) 403 direct requests
+// from GitHub Actions' shared IP ranges, independent of host or User-Agent.
+// Try direct first (fast, and most subs are fine) and only fall back to
+// routing through the client's CORS proxy on a 403 — routing everything
+// through the proxy unconditionally turned out to add enough latency that
+// even the previously-fine subs started timing out under concurrent load.
+async function fetchRedditItems(url) {
+  try {
+    return mapFeedItems(await parser.parseURL(url));
+  } catch (err) {
+    if (!/status code 403/i.test(err.message)) throw err;
+    const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
+    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
+    if (!res.ok) throw new Error(`reddit proxy ${res.status}`);
+    return mapFeedItems(await parser.parseString(await res.text()));
+  }
+}
+
+async function fetchFeedItems(url) {
+  const feed = url.includes('reddit.com')
+    ? await withTimeout(fetchRedditItems(url), 20000, 'parseURL')
+    : mapFeedItems(await withTimeout(parser.parseURL(url), 15000, 'parseURL'));
+  return feed;
 }
 
 async function fetchAllBundles() {

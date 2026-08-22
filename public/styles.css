@@ -33,6 +33,17 @@ html[data-theme="dark"] {
 
 * { box-sizing: border-box; }
 
+/* Themed scrollbars — slimmer than default, matching the paper/terracotta
+   palette instead of the OS default track/thumb. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
 body {
   margin: 0;
   font-family: var(--font-serif);
@@ -236,6 +247,21 @@ table th, .feed-source-group h4, .mo-name,
   flex-direction: column;
   gap: 0.3rem;
 }
+.sidebar-toggle-btn {
+  align-self: flex-end;
+  border: 1px solid var(--border);
+  background: var(--bg-widget-header);
+  color: var(--text-muted);
+  border-radius: 8px;
+  width: 1.9rem;
+  height: 1.9rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+  margin-bottom: 0.3rem;
+}
+.sidebar-toggle-btn:hover { color: var(--accent); border-color: var(--accent); }
+body.sidebar-collapsed .sidebar-toggle-btn { align-self: center; }
+
 .sidebar-btn {
   display: flex;
   align-items: center;
@@ -417,8 +443,10 @@ table th, .feed-source-group h4, .mo-name,
    moves the page instead of a widget list stealing it. */
 body.widgets-locked .widget-body { overflow: hidden; touch-action: none; }
 
-/* Sidebar collapse (desktop) */
-body.sidebar-collapsed .sidebar { flex: 0 0 0; width: 0; padding: 0; border: none; overflow: hidden; }
+/* Sidebar collapse (desktop) — collapses to a slim rail holding just the
+   toggle button, rather than disappearing entirely (which would strand it). */
+body.sidebar-collapsed .sidebar { flex: 0 0 auto; width: auto; padding: 1rem 0.5rem; }
+body.sidebar-collapsed .sidebar-btn { display: none; }
 
 .outbound-row {
   display: flex;
@@ -589,7 +617,11 @@ table.portfolio-table td { padding: 0.35rem 0; border-top: 1px solid var(--borde
   /* Flatter, lighter "list" feel instead of heavy shadowed desktop cards. */
   .widget-grid { grid-template-columns: 1fr; padding: 0; gap: 0; }
   .widget.wide { grid-column: span 1; }
+  /* Sidebar collapse is a desktop-only affordance; mobile's horizontal
+     strip stays as-is regardless of the toggle state. */
   body.sidebar-collapsed .sidebar { flex: 0 0 auto; width: auto; padding: 0.5rem 0.6rem; overflow-x: auto; }
+  body.sidebar-collapsed .sidebar-btn { display: flex; }
+  .sidebar-toggle-btn { display: none; }
   .scroll-lock-btn { bottom: 4rem; }
   .widget {
     border-radius: 0;

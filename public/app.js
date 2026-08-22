@@ -18,16 +18,24 @@ import {
   POLYMARKET_CATEGORY_KEYWORDS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.2.13';
+} from './shared-config.js?v=0.2.14';
 
-const APP_VERSION = '0.2.13';
+const APP_VERSION = '0.2.14';
 const PATCH_NOTES = [
+  {
+    version: '0.2.14',
+    date: '2026-08-22',
+    notes: [
+      'Fixed Reddit r/worldnews, r/politics, r/comicbooks, r/ActionFigures for real: they were 403ing from GitHub Actions\' shared IPs regardless of host (old.reddit.com vs www) or User-Agent — the snapshot script now routes just those feeds through the same CORS proxy the client uses.',
+      'Themed the scrollbars (slimmer, matching the paper/terracotta palette) instead of the OS default track/thumb.',
+      'Moved the sidebar collapse toggle from the header into the sidebar itself, next to what it controls.',
+    ],
+  },
   {
     version: '0.2.13',
     date: '2026-08-22',
     notes: [
       'Fixed AP/Reuters Google News search: the `allinurl:` operator was silently matching nothing — switched to `site:`, the operator used successfully everywhere else in the app.',
-      'Fixed Reddit r/worldnews, r/politics, r/comicbooks, r/ActionFigures getting 429 rate-limited — moved them to old.reddit.com, a separate cache/rate-limit bucket from www.reddit.com.',
       'Replaced Global Disasters\' ReliefWeb backend (its v1 API started returning 410 Gone) with NASA EONET — also gives the widget a real map, since EONET carries per-event coordinates.',
       'Styled the CrypTrack outbound link as a proper button instead of a plain inline link.',
       'Added a widget scroll-lock button (next to Scroll to Top): freezes every widget\'s internal scrolling so a mobile swipe always scrolls the page instead of a widget list stealing it.',
@@ -1626,19 +1634,26 @@ function initSidebar() {
     counts[cat] = (counts[cat] || 0) + 1;
   });
   const cats = ['all', ...Object.keys(CATEGORY_LABELS).filter((c) => counts[c])];
-  sidebar.innerHTML = cats
+  const toggleHtml = `<button id="sidebarToggleBtn" class="sidebar-toggle-btn" title="${state.sidebarCollapsed ? 'Show sidebar' : 'Collapse sidebar'}" aria-label="Toggle sidebar">${state.sidebarCollapsed ? '⇥' : '⇤'}</button>`;
+  const catsHtml = cats
     .map((c) => {
       const label = c === 'all' ? 'All Widgets' : CATEGORY_LABELS[c];
       const count = c === 'all' ? state.widgets.length : counts[c];
       return `<button class="sidebar-btn${c === activeCategory ? ' active' : ''}" data-cat="${c}">${escapeHtml(label)}<span class="count">${count}</span></button>`;
     })
     .join('');
+  sidebar.innerHTML = toggleHtml + catsHtml;
   sidebar.querySelectorAll('.sidebar-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       activeCategory = btn.dataset.cat;
       initSidebar();
       applyCategoryFilter();
     });
+  });
+  sidebar.querySelector('#sidebarToggleBtn').addEventListener('click', () => {
+    state.sidebarCollapsed = !state.sidebarCollapsed;
+    saveState();
+    applySidebarCollapsed();
   });
 }
 
@@ -1769,19 +1784,18 @@ scrollLockBtn.addEventListener('click', () => {
 applyScrollLock();
 
 // ---------------------------------------------------------------------------
-// Sidebar collapse (desktop)
+// Sidebar collapse (desktop) — the toggle button itself lives inside
+// initSidebar() (rebuilt with the rest of the sidebar), so this only
+// touches the body-level class and refreshes whichever button is current.
 // ---------------------------------------------------------------------------
-const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
 function applySidebarCollapsed() {
   document.body.classList.toggle('sidebar-collapsed', !!state.sidebarCollapsed);
-  sidebarToggleBtn.textContent = state.sidebarCollapsed ? '⇥' : '⇤';
-  sidebarToggleBtn.title = state.sidebarCollapsed ? 'Show sidebar' : 'Collapse sidebar';
+  const btn = document.getElementById('sidebarToggleBtn');
+  if (btn) {
+    btn.textContent = state.sidebarCollapsed ? '⇥' : '⇤';
+    btn.title = state.sidebarCollapsed ? 'Show sidebar' : 'Collapse sidebar';
+  }
 }
-sidebarToggleBtn.addEventListener('click', () => {
-  state.sidebarCollapsed = !state.sidebarCollapsed;
-  saveState();
-  applySidebarCollapsed();
-});
 applySidebarCollapsed();
 
 // ---------------------------------------------------------------------------
