@@ -3,8 +3,16 @@
 // from the browser. Feeds/APIs without CORS headers are routed through a
 // free, open CORS proxy (allorigins.win) as a fallback.
 
-const APP_VERSION = '0.2.0';
+const APP_VERSION = '0.2.1';
 const PATCH_NOTES = [
+  {
+    version: '0.2.1',
+    date: '2026-08-22',
+    notes: [
+      'Fixed "all widgets unavailable" bug caused by relying on a single, unreliable CORS proxy.',
+      'Added a fallback chain across multiple free CORS proxies (codetabs, allorigins, corsproxy.io) for RSS and quote fetches.',
+    ],
+  },
   {
     version: '0.2.0',
     date: '2026-08-22',
@@ -30,7 +38,14 @@ const PATCH_NOTES = [
   },
 ];
 
-const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+// Multiple free CORS proxies, tried in order — any single one of these can
+// go down or rate-limit independently, so we fall back through the list
+// rather than depending on one.
+const CORS_PROXIES = [
+  (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+];
 
 const MARKET_GROUPS = {
   indices: {
@@ -182,12 +197,20 @@ async function proxiedFetch(url, { direct = true } = {}) {
       const res = await fetch(url, { signal: AbortSignal.timeout(9000) });
       if (res.ok) return res;
     } catch (e) {
-      /* fall through to proxy */
+      /* fall through to proxy chain */
     }
   }
-  const res = await fetch(CORS_PROXY + encodeURIComponent(url), { signal: AbortSignal.timeout(12000) });
-  if (!res.ok) throw new Error(`Proxy fetch failed (${res.status})`);
-  return res;
+  let lastErr;
+  for (const buildProxyUrl of CORS_PROXIES) {
+    try {
+      const res = await fetch(buildProxyUrl(url), { signal: AbortSignal.timeout(10000) });
+      if (res.ok) return res;
+      lastErr = new Error(`Proxy responded ${res.status}`);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('All CORS proxies failed');
 }
 
 function parseFeedXML(xmlText) {
