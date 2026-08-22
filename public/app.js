@@ -18,10 +18,17 @@ import {
   POLYMARKET_CATEGORY_KEYWORDS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.5.0';
+} from './shared-config.js?v=0.5.1';
 
-const APP_VERSION = '0.5.0';
+const APP_VERSION = '0.5.1';
 const PATCH_NOTES = [
+  {
+    version: '0.5.1',
+    date: '2026-08-22',
+    notes: [
+      'The load-time chip is now clickable: shows time-to-first-byte, first contentful paint, full load time, total bytes transferred, and hosting (GitHub Pages) in a small popover.',
+    ],
+  },
   {
     version: '0.5.0',
     date: '2026-08-22',
@@ -1785,15 +1792,60 @@ window.addEventListener(
 scrollTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 
 // ---------------------------------------------------------------------------
-// Load time chip — how long this page took to load, next to the version chip.
+// Load time chip — how long this page took to load, next to the version
+// chip. Click it for a breakdown (TTFB, first paint, transfer size, host).
 // ---------------------------------------------------------------------------
+let loadMetrics = null;
+
+function computeLoadMetrics() {
+  const nav = performance.getEntriesByType('navigation')[0];
+  const paints = performance.getEntriesByType('paint');
+  const fcp = paints.find((p) => p.name === 'first-contentful-paint');
+  const resources = performance.getEntriesByType('resource');
+  // transferSize is 0 for any cross-origin resource without a
+  // Timing-Allow-Origin header (fonts.googleapis.com, unpkg.com, etc.) —
+  // this total is a floor, not exact, for anything not same-origin.
+  const transferBytes =
+    (nav?.transferSize || 0) + resources.reduce((sum, r) => sum + (r.transferSize || 0), 0);
+  return {
+    total: (nav ? nav.loadEventEnd : performance.now()) / 1000,
+    ttfb: nav ? Math.max(0, nav.responseStart - nav.startTime) / 1000 : null,
+    fcp: fcp ? fcp.startTime / 1000 : null,
+    transferKB: transferBytes / 1024,
+    resourceCount: resources.length + (nav ? 1 : 0),
+  };
+}
+
 window.addEventListener('load', () => {
   const chip = document.getElementById('loadTimeChip');
   if (!chip) return;
-  const nav = performance.getEntriesByType('navigation')[0];
-  const seconds = (nav ? nav.loadEventEnd : performance.now()) / 1000;
-  chip.textContent = `⏱ ${seconds.toFixed(2)}s`;
-  chip.title = `Page loaded in ${seconds.toFixed(2)}s`;
+  loadMetrics = computeLoadMetrics();
+  chip.textContent = `⏱ ${loadMetrics.total.toFixed(2)}s`;
+});
+
+const loadTimeChip = document.getElementById('loadTimeChip');
+const loadTimeTooltip = document.getElementById('loadTimeTooltip');
+loadTimeChip?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!loadTimeTooltip.classList.contains('hidden')) {
+    loadTimeTooltip.classList.add('hidden');
+    return;
+  }
+  const m = loadMetrics || computeLoadMetrics();
+  const fmt = (v) => (v == null ? '—' : `${v.toFixed(2)}s`);
+  loadTimeTooltip.innerHTML = `
+    <div class="loadtime-row"><span>Time to first byte</span><b>${fmt(m.ttfb)}</b></div>
+    <div class="loadtime-row"><span>First contentful paint</span><b>${fmt(m.fcp)}</b></div>
+    <div class="loadtime-row"><span>Full load</span><b>${fmt(m.total)}</b></div>
+    <div class="loadtime-row"><span>Transferred</span><b>${m.transferKB.toFixed(0)} KB · ${m.resourceCount} requests</b></div>
+    <div class="loadtime-row"><span>Hosted on</span><b>GitHub Pages</b></div>
+  `;
+  loadTimeTooltip.classList.remove('hidden');
+});
+document.addEventListener('click', (e) => {
+  if (loadTimeTooltip && !loadTimeTooltip.classList.contains('hidden') && !loadTimeTooltip.contains(e.target)) {
+    loadTimeTooltip.classList.add('hidden');
+  }
 });
 
 // ---------------------------------------------------------------------------

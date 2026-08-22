@@ -89,8 +89,32 @@ table th, .feed-source-group h4, .mo-name,
   cursor: pointer;
 }
 .version-chip:hover { color: var(--accent); border-color: var(--accent); }
-.loadtime-chip { cursor: default; }
-.loadtime-chip:hover { color: var(--text-muted); border-color: var(--border); }
+.loadtime-wrap { position: relative; display: inline-flex; }
+.loadtime-chip { font-family: inherit; }
+.loadtime-tooltip {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 0.4rem;
+  min-width: 220px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 0.5rem 0.65rem;
+  z-index: 40;
+}
+.loadtime-tooltip.hidden { display: none; }
+.loadtime-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  padding: 0.2rem 0;
+}
+.loadtime-row:not(:last-child) { border-bottom: 1px solid var(--border); }
+.loadtime-row b { color: var(--text); font-weight: 600; }
 
 .mobile-menu-btn { display: none; }
 
