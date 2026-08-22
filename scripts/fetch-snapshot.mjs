@@ -14,13 +14,13 @@ import { FEED_BUNDLES, MARKET_GROUPS, DEFAULT_PORTFOLIO, STATUS_SERVICES, normal
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = path.join(__dirname, '../public/data/snapshot.json');
 
-// A self-identifying bot UA gets 403'd by Reddit's anti-bot filtering on its
-// busier subs (r/worldnews, r/politics, r/comicbooks, r/ActionFigures all
-// confirmed 403 in production logs, even via old.reddit.com) — a realistic
-// browser UA is the standard workaround and doesn't affect other feeds.
+// Swapping this to a browser UA was tried and reverted: it didn't fix
+// Reddit's 403s (see fetchFeedItems below) and broke WDWNT, which had been
+// working fine with this bot-identifying UA. Keep it as-is for everything
+// except Reddit.
 const parser = new Parser({
   timeout: 12000,
-  headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' },
+  headers: { 'User-Agent': 'NewsDash-Snapshot/1.0 (+https://github.com/ikcerog/NewsDash)' },
 });
 
 async function safe(label, fn) {
@@ -44,8 +44,22 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+// Reddit's .rss endpoints 403 direct requests from GitHub Actions' shared IP
+// ranges outright — confirmed in production across both www.reddit.com and
+// old.reddit.com, and independent of User-Agent. Routing through the same
+// free CORS proxy the client uses sidesteps the IP block.
+async function fetchRedditViaProxy(url) {
+  const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
+  const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
+  if (!res.ok) throw new Error(`reddit proxy ${res.status}`);
+  const xml = await res.text();
+  return parser.parseString(xml);
+}
+
 async function fetchFeedItems(url) {
-  const feed = await withTimeout(parser.parseURL(url), 15000, 'parseURL');
+  const feed = url.includes('reddit.com')
+    ? await withTimeout(fetchRedditViaProxy(url), 15000, 'parseURL')
+    : await withTimeout(parser.parseURL(url), 15000, 'parseURL');
   return (feed.items || []).slice(0, 12).map((it) => ({
     title: it.title || '(untitled)',
     link: it.link || '#',

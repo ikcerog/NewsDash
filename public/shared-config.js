@@ -163,12 +163,9 @@ export const FEED_BUNDLES = {
     label: 'Deep Wire',
     feeds: [
       { name: 'Hacker News', url: 'https://hnrss.org/frontpage' },
-      // old.reddit.com sits behind a separate cache/rate-limit bucket than
-      // www.reddit.com — these two subs are among Reddit's most-scraped and
-      // were getting 429'd on the www host; old.reddit tends to survive.
-      { name: 'Reddit r/worldnews', url: 'https://old.reddit.com/r/worldnews/.rss' },
+      { name: 'Reddit r/worldnews', url: 'https://www.reddit.com/r/worldnews/.rss' },
       { name: 'Reddit r/news', url: 'https://www.reddit.com/r/news/.rss' },
-      { name: 'Reddit r/politics', url: 'https://old.reddit.com/r/politics/.rss' },
+      { name: 'Reddit r/politics', url: 'https://www.reddit.com/r/politics/.rss' },
       { name: 'ProPublica', url: 'https://www.propublica.org/feeds/propublica/main' },
       { name: 'Ars Technica', url: 'https://feeds.arstechnica.com/arstechnica/index' },
       { name: 'Politico', url: 'https://rss.politico.com/politics-news.xml' },
@@ -241,8 +238,8 @@ export const FEED_BUNDLES = {
       { name: 'ScreenRant', url: 'https://screenrant.com/feed/' },
       { name: 'Polygon', url: 'https://www.polygon.com/rss/index.xml' },
       { name: 'Kotaku', url: 'https://kotaku.com/rss' },
-      { name: 'Reddit r/comicbooks', url: 'https://old.reddit.com/r/comicbooks/.rss' },
-      { name: 'Reddit r/ActionFigures', url: 'https://old.reddit.com/r/ActionFigures/.rss' },
+      { name: 'Reddit r/comicbooks', url: 'https://www.reddit.com/r/comicbooks/.rss' },
+      { name: 'Reddit r/ActionFigures', url: 'https://www.reddit.com/r/ActionFigures/.rss' },
       { name: 'WDWNT', url: 'https://wdwnt.com/feed/' },
       { name: 'Disney Food Blog', url: 'https://www.disneyfoodblog.com/feed/' },
       { name: 'AllEars.net', url: 'https://allears.net/feed/' },
