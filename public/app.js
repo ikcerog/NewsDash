@@ -18,10 +18,23 @@ import {
   POLYMARKET_CATEGORY_KEYWORDS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.2.12';
+} from './shared-config.js?v=0.2.13';
 
-const APP_VERSION = '0.2.12';
+const APP_VERSION = '0.2.13';
 const PATCH_NOTES = [
+  {
+    version: '0.2.13',
+    date: '2026-08-22',
+    notes: [
+      'Fixed AP/Reuters Google News search: the `allinurl:` operator was silently matching nothing — switched to `site:`, the operator used successfully everywhere else in the app.',
+      'Fixed Reddit r/worldnews, r/politics, r/comicbooks, r/ActionFigures getting 429 rate-limited — moved them to old.reddit.com, a separate cache/rate-limit bucket from www.reddit.com.',
+      'Replaced Global Disasters\' ReliefWeb backend (its v1 API started returning 410 Gone) with NASA EONET — also gives the widget a real map, since EONET carries per-event coordinates.',
+      'Styled the CrypTrack outbound link as a proper button instead of a plain inline link.',
+      'Added a widget scroll-lock button (next to Scroll to Top): freezes every widget\'s internal scrolling so a mobile swipe always scrolls the page instead of a widget list stealing it.',
+      'Added a collapsible sidebar (desktop) via a new header toggle button.',
+      'Added a per-widget "double-wide" toggle (desktop): a widget can take two grid columns; a wide widget that doesn\'t fit the current row reflows to the next one automatically.',
+    ],
+  },
   {
     version: '0.2.12',
     date: '2026-08-22',
@@ -814,22 +827,27 @@ async function fetchMovers() {
 }
 
 // ---------------------------------------------------------------------------
-// Global Disasters — ReliefWeb (UN OCHA), free/keyless, replaces the RSOE
-// EDIS link-out with real pullable data.
+// Global Disasters — NASA EONET (Earth Observatory Natural Event Tracker),
+// free/keyless. Replaces ReliefWeb, whose v1 API started returning 410 Gone.
+// EONET also carries per-event lat/lon, so this widget gets a real map.
 // ---------------------------------------------------------------------------
 async function fetchGlobalDisasters() {
   if (snapshotFresh() && SNAPSHOT.globalDisasters?.length) return SNAPSHOT.globalDisasters;
   return withCache('global-disasters', 15 * 60 * 1000, async () => {
-    const url = 'https://api.reliefweb.int/v1/disasters?appname=newsdash&profile=list&preset=latest&limit=20';
+    const url = 'https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=25';
     const res = await proxiedFetch(url, { direct: true });
     const data = await res.json();
-    return (data.data || []).map((d) => ({
-      name: d.fields?.name,
-      type: d.fields?.type?.map((t) => t.name).join(', '),
-      country: d.fields?.country?.map((c) => c.name).join(', '),
-      date: d.fields?.date?.created,
-      url: d.fields?.url_alias || d.fields?.url || `https://reliefweb.int/disaster/${d.id}`,
-    }));
+    return (data.events || []).map((e) => {
+      const geom = e.geometry?.[e.geometry.length - 1];
+      const coords = geom?.type === 'Point' ? geom.coordinates : geom?.coordinates?.[0]?.[0];
+      return {
+        name: e.title,
+        type: (e.categories || []).map((c) => c.title).join(', '),
+        date: geom?.date,
+        url: e.sources?.[0]?.url || `https://eonet.gsfc.nasa.gov/api/v3/events/${e.id}`,
+        centroid: Array.isArray(coords) ? { lon: coords[0], lat: coords[1] } : null,
+      };
+    });
   });
 }
 
@@ -908,10 +926,13 @@ function renderWidget(widget, index = 0) {
   el.dataset.id = widget.id;
   el.dataset.category = getWidgetCategory(widget);
 
+  if (widget.wide) el.classList.add('wide');
+
   el.innerHTML = `
     <div class="widget-header">
       <h3>${widgetIcon(widget)} ${escapeHtml(widgetTitle(widget))}</h3>
       <div class="controls">
+        <button class="wide-btn${widget.wide ? ' active' : ''}" title="Toggle double-width">⬌</button>
         <button class="focus-btn" title="Focus — view all">⤢</button>
         <button class="refresh-btn" title="Refresh">⟳</button>
         <button class="remove-btn" title="Remove">✕</button>
@@ -927,6 +948,12 @@ function renderWidget(widget, index = 0) {
   });
   el.querySelector('.refresh-btn').addEventListener('click', () => loadWidgetData(widget, el));
   el.querySelector('.focus-btn').addEventListener('click', () => openFocusModal(widget));
+  el.querySelector('.wide-btn').addEventListener('click', (e) => {
+    widget.wide = !widget.wide;
+    el.classList.toggle('wide', widget.wide);
+    e.currentTarget.classList.toggle('active', widget.wide);
+    saveState();
+  });
 
   el.addEventListener('dragstart', () => el.classList.add('dragging'));
   el.addEventListener('dragend', () => {
@@ -1088,12 +1115,21 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
     if (!disasters.length) {
       body.innerHTML = '<div class="empty-state">No active disasters reported right now.</div>';
     } else {
+      const mapEl = document.createElement('div');
+      mapEl.className = focus ? 'widget-map widget-map-large' : 'widget-map';
+      body.appendChild(mapEl);
+      initLeafletMap(
+        mapEl,
+        disasters
+          .filter((d) => d.centroid)
+          .map((d) => ({ lat: d.centroid.lat, lon: d.centroid.lon, label: `${d.name} — ${d.type}`, radius: 7 }))
+      );
       disasters.forEach((d) => {
         const div = document.createElement('div');
         div.className = 'feed-item';
         div.innerHTML = `
           <a href="${escapeAttr(d.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(d.name || 'Untitled')}</a>
-          <div class="meta">${escapeHtml(d.country || '')} · ${escapeHtml(d.type || '')}</div>
+          <div class="meta">${escapeHtml(d.type || '')}</div>
         `;
         body.appendChild(div);
       });
@@ -1164,9 +1200,9 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
       <iframe class="${focus ? 'widget-iframe widget-iframe-large' : 'widget-iframe'}"
         src="https://ikcerog.github.io/cryptrack/" loading="lazy"
         title="CrypTrack — global cryptid sightings atlas"></iframe>
-      <div class="meta" style="margin-top:0.4rem;">
-        Live Bigfoot/UFO sightings map & charts —
-        <a href="https://ikcerog.github.io/cryptrack/" target="_blank" rel="noopener noreferrer">open full site ↗</a>
+      <div class="outbound-row">
+        <span class="meta">Live Bigfoot/UFO sightings map &amp; charts</span>
+        <a class="btn btn-primary outbound-btn" href="https://ikcerog.github.io/cryptrack/" target="_blank" rel="noopener noreferrer">Open full site ↗</a>
       </div>
     `;
   }
@@ -1713,6 +1749,40 @@ window.addEventListener(
   { passive: true }
 );
 scrollTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+
+// ---------------------------------------------------------------------------
+// Scroll lock — freezes each widget's internal scroll so a touch drag always
+// scrolls the page (mobile: widget lists otherwise steal the swipe).
+// ---------------------------------------------------------------------------
+const scrollLockBtn = document.getElementById('scrollLockBtn');
+function applyScrollLock() {
+  document.body.classList.toggle('widgets-locked', !!state.widgetsLocked);
+  scrollLockBtn.classList.toggle('active', !!state.widgetsLocked);
+  scrollLockBtn.textContent = state.widgetsLocked ? '🔒' : '🔓';
+  scrollLockBtn.title = state.widgetsLocked ? 'Unlock widget scrolling' : 'Lock widget scrolling (page-only scroll)';
+}
+scrollLockBtn.addEventListener('click', () => {
+  state.widgetsLocked = !state.widgetsLocked;
+  saveState();
+  applyScrollLock();
+});
+applyScrollLock();
+
+// ---------------------------------------------------------------------------
+// Sidebar collapse (desktop)
+// ---------------------------------------------------------------------------
+const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+function applySidebarCollapsed() {
+  document.body.classList.toggle('sidebar-collapsed', !!state.sidebarCollapsed);
+  sidebarToggleBtn.textContent = state.sidebarCollapsed ? '⇥' : '⇤';
+  sidebarToggleBtn.title = state.sidebarCollapsed ? 'Show sidebar' : 'Collapse sidebar';
+}
+sidebarToggleBtn.addEventListener('click', () => {
+  state.sidebarCollapsed = !state.sidebarCollapsed;
+  saveState();
+  applySidebarCollapsed();
+});
+applySidebarCollapsed();
 
 // ---------------------------------------------------------------------------
 // Theme

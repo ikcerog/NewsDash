@@ -282,6 +282,7 @@ table th, .feed-source-group h4, .mo-name,
   max-height: 520px;
 }
 .widget.dragging { opacity: 0.4; }
+.widget.wide { grid-column: span 2; }
 
 .widget-header {
   display: flex;
@@ -304,6 +305,7 @@ table th, .feed-source-group h4, .mo-name,
   border-radius: 6px;
 }
 .widget-header .controls button:hover { color: var(--accent); background: var(--bg); }
+.widget-header .controls .wide-btn.active { color: var(--accent); }
 
 .widget-body {
   padding: 0.5rem 0.75rem;
@@ -392,6 +394,41 @@ table th, .feed-source-group h4, .mo-name,
 }
 .scroll-top-btn.visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
 .scroll-top-btn:hover { filter: brightness(1.1); }
+
+.scroll-lock-btn {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 4.35rem;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 1.1rem;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  z-index: 30;
+}
+.scroll-lock-btn:hover { filter: brightness(1.1); }
+.scroll-lock-btn.active { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+
+/* Scroll lock: freeze every widget's internal scroll so a touch drag always
+   moves the page instead of a widget list stealing it. */
+body.widgets-locked .widget-body { overflow: hidden; touch-action: none; }
+
+/* Sidebar collapse (desktop) */
+body.sidebar-collapsed .sidebar { flex: 0 0 0; width: 0; padding: 0; border: none; overflow: hidden; }
+
+.outbound-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+.outbound-btn { white-space: nowrap; }
 
 table.status-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 table.status-table td { padding: 0.4rem 0; border-top: 1px solid var(--border); }
@@ -551,6 +588,9 @@ table.portfolio-table td { padding: 0.35rem 0; border-top: 1px solid var(--borde
 
   /* Flatter, lighter "list" feel instead of heavy shadowed desktop cards. */
   .widget-grid { grid-template-columns: 1fr; padding: 0; gap: 0; }
+  .widget.wide { grid-column: span 1; }
+  body.sidebar-collapsed .sidebar { flex: 0 0 auto; width: auto; padding: 0.5rem 0.6rem; overflow-x: auto; }
+  .scroll-lock-btn { bottom: 4rem; }
   .widget {
     border-radius: 0;
     border-left: none;

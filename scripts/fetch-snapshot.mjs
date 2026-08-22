@@ -280,18 +280,24 @@ async function fetchServiceStatus() {
   return STATUS_SERVICES.map((s, i) => (results[i].status === 'fulfilled' ? results[i].value : { name: s.name, indicator: null, description: null }));
 }
 
+// NASA EONET (Earth Observatory Natural Event Tracker), free/keyless.
+// Replaces ReliefWeb, whose v1 API started returning 410 Gone.
 async function fetchGlobalDisasters() {
-  const url = 'https://api.reliefweb.int/v1/disasters?appname=newsdash&profile=list&preset=latest&limit=20';
+  const url = 'https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=25';
   const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-  if (!res.ok) throw new Error(`ReliefWeb ${res.status}`);
+  if (!res.ok) throw new Error(`EONET ${res.status}`);
   const data = await res.json();
-  return (data.data || []).map((d) => ({
-    name: d.fields?.name,
-    type: d.fields?.type?.map((t) => t.name).join(', '),
-    country: d.fields?.country?.map((c) => c.name).join(', '),
-    date: d.fields?.date?.created,
-    url: d.fields?.url_alias || d.fields?.url || `https://reliefweb.int/disaster/${d.id}`,
-  }));
+  return (data.events || []).map((e) => {
+    const geom = e.geometry?.[e.geometry.length - 1];
+    const coords = geom?.type === 'Point' ? geom.coordinates : geom?.coordinates?.[0]?.[0];
+    return {
+      name: e.title,
+      type: (e.categories || []).map((c) => c.title).join(', '),
+      date: geom?.date,
+      url: e.sources?.[0]?.url || `https://eonet.gsfc.nasa.gov/api/v3/events/${e.id}`,
+      centroid: Array.isArray(coords) ? { lon: coords[0], lat: coords[1] } : null,
+    };
+  });
 }
 
 async function main() {
