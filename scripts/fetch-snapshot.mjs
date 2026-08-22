@@ -53,22 +53,41 @@ function mapFeedItems(feed) {
 }
 
 // Hitting the free codetabs proxy with several concurrent reddit fallback
-// requests at once got it 503ing/timing out (observed in production) — this
-// queue serializes just those calls so they queue up instead of piling on
-// together, plus one retry after a short backoff for a transient 503.
-let redditProxyQueue = Promise.resolve();
-function runQueued(fn) {
-  const run = redditProxyQueue.then(fn, fn);
-  redditProxyQueue = run.catch(() => {});
-  return run;
+// requests at once got it 503ing/timing out (observed in production).
+// Full serialization plus a retry-with-backoff (tried and reverted) made a
+// run hang well past its own timeout budgets — a hard outer withTimeout
+// races via setTimeout so it should never do that, but it did, so keep this
+// simple instead: a small concurrency cap (2 at a time), single attempt, no
+// retry. A feed that still misses just comes back empty for this cycle;
+// the 20-minute cron picks it up again next time.
+const REDDIT_PROXY_CONCURRENCY = 2;
+let activeReddit = 0;
+const redditWaiters = [];
+function acquireRedditSlot() {
+  if (activeReddit < REDDIT_PROXY_CONCURRENCY) {
+    activeReddit++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => redditWaiters.push(resolve)).then(() => {
+    activeReddit++;
+  });
 }
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function releaseRedditSlot() {
+  activeReddit--;
+  const next = redditWaiters.shift();
+  if (next) next();
+}
 
 async function fetchViaRedditProxy(url) {
-  const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
-  const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
-  if (!res.ok) throw new Error(`reddit proxy ${res.status}`);
-  return mapFeedItems(await parser.parseString(await res.text()));
+  await acquireRedditSlot();
+  try {
+    const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
+    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(`reddit proxy ${res.status}`);
+    return mapFeedItems(await parser.parseString(await res.text()));
+  } finally {
+    releaseRedditSlot();
+  }
 }
 
 // Some Reddit subs (not all — r/news works fine direct) 403/429 direct
@@ -82,22 +101,17 @@ async function fetchRedditItems(url) {
     return mapFeedItems(await parser.parseURL(url));
   } catch (err) {
     if (!/status code (403|429)/i.test(err.message)) throw err;
-    try {
-      return await runQueued(() => fetchViaRedditProxy(url));
-    } catch {
-      await sleep(1500);
-      return runQueued(() => fetchViaRedditProxy(url));
-    }
+    return fetchViaRedditProxy(url);
   }
 }
 
 async function fetchFeedItems(url) {
-  // Reddit feeds needing the proxy fallback are serialized against each
-  // other (see runQueued above) plus a retry-with-backoff, so a feed near
-  // the back of that queue legitimately needs much longer than a normal
-  // 15s single-feed budget.
+  // Reddit feeds needing the proxy fallback share a small concurrency cap
+  // (see acquireRedditSlot above), so a feed waiting for a slot needs a
+  // bit more room than a normal single-feed budget, but it's bounded —
+  // at most 2 feeds deep in the queue ahead of it, ~10s each.
   const feed = url.includes('reddit.com')
-    ? await withTimeout(fetchRedditItems(url), 150000, 'parseURL')
+    ? await withTimeout(fetchRedditItems(url), 35000, 'parseURL')
     : mapFeedItems(await withTimeout(parser.parseURL(url), 15000, 'parseURL'));
   return feed;
 }
