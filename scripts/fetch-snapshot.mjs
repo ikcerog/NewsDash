@@ -52,30 +52,52 @@ function mapFeedItems(feed) {
   }));
 }
 
-// Some Reddit subs (not all — r/news works fine direct) 403 direct requests
-// from GitHub Actions' shared IP ranges, independent of host or User-Agent.
-// Try direct first (fast, and most subs are fine) and only fall back to
-// routing through the client's CORS proxy on a 403 — routing everything
+// Hitting the free codetabs proxy with several concurrent reddit fallback
+// requests at once got it 503ing/timing out (observed in production) — this
+// queue serializes just those calls so they queue up instead of piling on
+// together, plus one retry after a short backoff for a transient 503.
+let redditProxyQueue = Promise.resolve();
+function runQueued(fn) {
+  const run = redditProxyQueue.then(fn, fn);
+  redditProxyQueue = run.catch(() => {});
+  return run;
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function fetchViaRedditProxy(url) {
+  const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
+  const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
+  if (!res.ok) throw new Error(`reddit proxy ${res.status}`);
+  return mapFeedItems(await parser.parseString(await res.text()));
+}
+
+// Some Reddit subs (not all — r/news works fine direct) 403/429 direct
+// requests from GitHub Actions' shared IP ranges, independent of host or
+// User-Agent. Try direct first (fast, and most subs are fine) and only
+// fall back to the client's CORS proxy when blocked — routing everything
 // through the proxy unconditionally turned out to add enough latency that
 // even the previously-fine subs started timing out under concurrent load.
 async function fetchRedditItems(url) {
   try {
     return mapFeedItems(await parser.parseURL(url));
   } catch (err) {
-    // Reddit's IP-based blocking shows up inconsistently as 403 or 429
-    // depending on which of the parallel bundle requests land together —
-    // both are the same underlying block, so both retry via proxy.
     if (!/status code (403|429)/i.test(err.message)) throw err;
-    const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
-    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
-    if (!res.ok) throw new Error(`reddit proxy ${res.status}`);
-    return mapFeedItems(await parser.parseString(await res.text()));
+    try {
+      return await runQueued(() => fetchViaRedditProxy(url));
+    } catch {
+      await sleep(1500);
+      return runQueued(() => fetchViaRedditProxy(url));
+    }
   }
 }
 
 async function fetchFeedItems(url) {
+  // Reddit feeds needing the proxy fallback are serialized against each
+  // other (see runQueued above) plus a retry-with-backoff, so a feed near
+  // the back of that queue legitimately needs much longer than a normal
+  // 15s single-feed budget.
   const feed = url.includes('reddit.com')
-    ? await withTimeout(fetchRedditItems(url), 20000, 'parseURL')
+    ? await withTimeout(fetchRedditItems(url), 150000, 'parseURL')
     : mapFeedItems(await withTimeout(parser.parseURL(url), 15000, 'parseURL'));
   return feed;
 }
