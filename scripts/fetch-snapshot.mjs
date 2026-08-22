@@ -14,9 +14,13 @@ import { FEED_BUNDLES, MARKET_GROUPS, DEFAULT_PORTFOLIO, STATUS_SERVICES, normal
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = path.join(__dirname, '../public/data/snapshot.json');
 
+// A self-identifying bot UA gets 403'd by Reddit's anti-bot filtering on its
+// busier subs (r/worldnews, r/politics, r/comicbooks, r/ActionFigures all
+// confirmed 403 in production logs, even via old.reddit.com) — a realistic
+// browser UA is the standard workaround and doesn't affect other feeds.
 const parser = new Parser({
   timeout: 12000,
-  headers: { 'User-Agent': 'NewsDash-Snapshot/1.0 (+https://github.com/ikcerog/NewsDash)' },
+  headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' },
 });
 
 async function safe(label, fn) {
