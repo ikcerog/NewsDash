@@ -1,10 +1,27 @@
 // NewsDash — client-side app.
-// Runs entirely static (GitHub Pages friendly): all data is fetched directly
-// from the browser. Feeds/APIs without CORS headers are routed through a
-// free, open CORS proxy (allorigins.win) as a fallback.
+// Runs entirely static (GitHub Pages friendly). Primary data source is a
+// pre-fetched JSON snapshot (data/snapshot.json) built server-side every
+// ~20 minutes by a GitHub Action (scripts/fetch-snapshot.mjs) — no CORS
+// proxy involved, so it's fast and reliable. Anything not covered by the
+// snapshot (a custom feed URL, an arbitrary portfolio symbol, a custom
+// Polymarket search) still fetches live from the browser, routed through a
+// free CORS proxy chain as a fallback.
+import { MARKET_GROUPS, FEED_BUNDLES, DEFAULT_PORTFOLIO, WIDGET_CATEGORIES, CATEGORY_LABELS } from './shared-config.js';
 
-const APP_VERSION = '0.2.3';
+const APP_VERSION = '0.2.4';
 const PATCH_NOTES = [
+  {
+    version: '0.2.4',
+    date: '2026-08-22',
+    notes: [
+      'Added a "free DB backstop": a GitHub Action fetches all feeds/quotes/APIs server-side every ~20 min (no CORS/proxy needed there) and commits a JSON snapshot the site reads instantly instead of live-fetching on every load — the real fix for both speed and reliability.',
+      'Existing saved layouts now auto-migrate: newly introduced widgets are added automatically instead of requiring manual "+ Add Widget".',
+      'Fixed a bug where a successful-but-empty feed result (e.g. a quiet news day) was shown as "unavailable" instead of "no recent items".',
+      'Fixed a bug where one failed live top-up request could wipe out portfolio quotes that were already available from the snapshot.',
+      'Replaced the still-stale WSJ RSS feeds and remaining flaky Detroit-local feeds (WXYZ, Fox 2) with Google News fallbacks.',
+      'Added a left-rail sidebar that groups widgets into modules (News, Markets, Forecasting, Trends, Safety & Alerts) with counts and filtering.',
+    ],
+  },
   {
     version: '0.2.3',
     date: '2026-08-22',
@@ -72,126 +89,46 @@ const CORS_PROXIES = [
   (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
 ];
 
-const MARKET_GROUPS = {
-  indices: {
-    label: 'Indices',
-    symbols: [
-      { sym: '^spx', name: 'S&P 500' },
-      { sym: '^dji', name: 'Dow Jones' },
-      { sym: '^ndq', name: 'Nasdaq 100' },
-      { sym: '^rut', name: 'Russell 2000' },
-      { sym: '^vix', name: 'VIX' },
-    ],
-  },
-  sectors: {
-    label: 'Sector ETFs',
-    symbols: [
-      { sym: 'xlk.us', name: 'Technology' },
-      { sym: 'xlf.us', name: 'Financials' },
-      { sym: 'xle.us', name: 'Energy' },
-      { sym: 'xlv.us', name: 'Health Care' },
-      { sym: 'xly.us', name: 'Cons. Discretionary' },
-      { sym: 'xlu.us', name: 'Utilities' },
-    ],
-  },
-  commodities: {
-    label: 'Commodities',
-    symbols: [
-      { sym: 'gc.f', name: 'Gold' },
-      { sym: 'cl.f', name: 'Crude Oil' },
-      { sym: 'ng.f', name: 'Natural Gas' },
-      { sym: 'si.f', name: 'Silver' },
-    ],
-  },
-  currencies: {
-    label: 'Currencies & Crypto',
-    symbols: [
-      { sym: 'eurusd', name: 'EUR/USD' },
-      { sym: 'gbpusd', name: 'GBP/USD' },
-      { sym: 'usdjpy', name: 'USD/JPY' },
-      { sym: 'btcusd', name: 'Bitcoin' },
-    ],
-  },
-};
-
-const FEED_BUNDLES = {
-  tier1: {
-    label: 'Tier 1 Headlines',
-    feeds: [
-      { name: 'WSJ World News', url: 'https://feeds.a.dj.com/rss/RSSWorldNews.xml' },
-      { name: 'WSJ Markets', url: 'https://feeds.a.dj.com/rss/RSSMarketsMain.xml' },
-      { name: 'BBC World', url: 'http://feeds.bbci.co.uk/news/world/rss.xml' },
-      { name: 'NPR News', url: 'https://feeds.npr.org/1001/rss.xml' },
-      { name: 'NYT Home Page', url: 'https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml' },
-      { name: 'Al Jazeera', url: 'https://www.aljazeera.com/xml/rss/all.xml' },
-      { name: 'The Guardian World', url: 'https://www.theguardian.com/world/rss' },
-    ],
-  },
-  breaking: {
-    label: 'Breaking News Alerts',
-    feeds: [
-      { name: 'AP (Google News)', url: 'https://news.google.com/rss/search?q=when:1h+allinurl:apnews.com&hl=en-US&gl=US&ceid=US:en' },
-      { name: 'Reuters (Google News)', url: 'https://news.google.com/rss/search?q=when:1h+allinurl:reuters.com&hl=en-US&gl=US&ceid=US:en' },
-      { name: 'Breaking News (Google News)', url: 'https://news.google.com/rss/search?q=breaking%20news&hl=en-US&gl=US&ceid=US:en' },
-    ],
-  },
-  detroit: {
-    label: 'Detroit Local',
-    feeds: [
-      { name: 'Detroit Free Press', url: 'https://news.google.com/rss/search?q=site:freep.com+when:2d&hl=en-US&gl=US&ceid=US:en' },
-      { name: 'The Detroit News', url: 'https://news.google.com/rss/search?q=site:detroitnews.com+when:2d&hl=en-US&gl=US&ceid=US:en' },
-      { name: 'WXYZ Detroit', url: 'https://www.wxyz.com/rss' },
-      { name: 'Fox 2 Detroit', url: 'https://www.fox2detroit.com/rss' },
-      { name: "Crain's Detroit Business", url: 'https://news.google.com/rss/search?q=site:crainsdetroit.com+when:3d&hl=en-US&gl=US&ceid=US:en' },
-      { name: 'ClickOnDetroit (WDIV)', url: 'https://news.google.com/rss/search?q=site:clickondetroit.com+when:2d&hl=en-US&gl=US&ceid=US:en' },
-    ],
-  },
-  deepwire: {
-    label: 'Deep Wire',
-    feeds: [
-      { name: 'Hacker News', url: 'https://hnrss.org/frontpage' },
-      { name: 'Reddit r/worldnews', url: 'https://www.reddit.com/r/worldnews/.rss' },
-      { name: 'Reddit r/news', url: 'https://www.reddit.com/r/news/.rss' },
-      { name: 'Reddit r/politics', url: 'https://www.reddit.com/r/politics/.rss' },
-      { name: 'ProPublica', url: 'https://www.propublica.org/feeds/propublica/main' },
-      { name: 'Ars Technica', url: 'https://feeds.arstechnica.com/arstechnica/index' },
-      { name: 'Politico', url: 'https://rss.politico.com/politics-news.xml' },
-    ],
-  },
-  gaming: {
-    label: 'Gaming',
-    feeds: [
-      { name: 'Wowhead (Google News)', url: 'https://news.google.com/rss/search?q=site:wowhead.com+when:3d&hl=en-US&gl=US&ceid=US:en' },
-      { name: 'Elder Scrolls Online (Google News)', url: 'https://news.google.com/rss/search?q=%22Elder+Scrolls+Online%22+when:7d&hl=en-US&gl=US&ceid=US:en' },
-      { name: 'Reddit r/wow', url: 'https://www.reddit.com/r/wow/.rss' },
-      { name: 'Reddit r/elderscrollsonline', url: 'https://www.reddit.com/r/elderscrollsonline/.rss' },
-      { name: 'Reddit r/Games', url: 'https://www.reddit.com/r/Games/.rss' },
-      { name: 'IGN', url: 'https://feeds.ign.com/ign/all' },
-      { name: 'PC Gamer', url: 'https://www.pcgamer.com/rss/' },
-    ],
-  },
-  trending: {
-    label: 'Trending Now',
-    feeds: [
-      { name: 'Google Trends (US)', url: 'https://trends.google.com/trending/rss?geo=US' },
-      { name: 'Reddit r/all', url: 'https://www.reddit.com/r/all/top/.rss?t=day' },
-    ],
-  },
-};
+// MARKET_GROUPS and FEED_BUNDLES now live in shared-config.js (imported above).
 
 // ---------------------------------------------------------------------------
 // Storage
 // ---------------------------------------------------------------------------
 const STORE_KEY = 'newsdash.state.v1';
 
+function widgetSignature(w) {
+  return `${w.type}:${JSON.stringify(w.config || {})}`;
+}
+
+// Existing users' saved layouts predate widgets introduced in later
+// versions and would otherwise never see them. On every load, any default
+// widget whose (type, config) signature isn't already present gets
+// appended — additive only, never touches the user's own customizations
+// or ordering.
+function migrateWidgets(saved) {
+  const existing = new Set((saved.widgets || []).map(widgetSignature));
+  const additions = defaultState().widgets.filter((w) => !existing.has(widgetSignature(w)));
+  if (additions.length) saved.widgets = [...(saved.widgets || []), ...additions];
+  return saved;
+}
+
 function loadState() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      if (saved.version !== APP_VERSION) {
+        migrateWidgets(saved);
+        saved.version = APP_VERSION;
+      }
+      return saved;
+    }
   } catch (e) {
     console.warn('Failed to parse stored state', e);
   }
-  return defaultState();
+  const fresh = defaultState();
+  fresh.version = APP_VERSION;
+  return fresh;
 }
 
 function defaultState() {
@@ -199,7 +136,7 @@ function defaultState() {
     theme: 'dark',
     tickerSpeed: 60,
     localZip: null,
-    portfolio: ['AAPL', 'MSFT', 'TSLA', 'NVDA'],
+    portfolio: [...DEFAULT_PORTFOLIO],
     widgets: [
       { id: uid(), type: 'feed-bundle', config: { bundle: 'tier1' } },
       { id: uid(), type: 'markets-overview', config: {} },
@@ -227,6 +164,31 @@ function uid() {
 let state = loadState();
 function saveState() {
   localStorage.setItem(STORE_KEY, JSON.stringify(state));
+}
+
+// ---------------------------------------------------------------------------
+// Data snapshot — the "free DB backstop". A GitHub Action
+// (scripts/fetch-snapshot.mjs) fetches everything server-side every ~20
+// minutes (no CORS/proxy needed there) and commits the result here. The
+// site reads this same-origin file directly — instant, no proxy chain —
+// and only falls back to live client-side fetches when the snapshot is
+// missing, stale, or doesn't cover the specific thing requested (a custom
+// feed URL, a portfolio symbol outside the default set, etc.).
+// ---------------------------------------------------------------------------
+let SNAPSHOT = null;
+
+async function loadSnapshot() {
+  try {
+    const res = await fetch('./data/snapshot.json', { cache: 'no-store', signal: AbortSignal.timeout(6000) });
+    if (res.ok) SNAPSHOT = await res.json();
+  } catch (e) {
+    console.warn('Snapshot unavailable, falling back to live fetches:', e.message);
+  }
+}
+
+function snapshotFresh() {
+  if (!SNAPSHOT || !SNAPSHOT.generatedAt) return false;
+  return Date.now() - new Date(SNAPSHOT.generatedAt).getTime() < 2 * 60 * 60 * 1000;
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +278,43 @@ async function fetchFeed(url) {
   });
 }
 
+// Returns [{ name, items, error }] aligned with FEED_BUNDLES[bundleKey].feeds.
+// Prefers the snapshot (instant); falls back to live per-feed fetches.
+async function fetchBundle(bundleKey) {
+  const bundle = FEED_BUNDLES[bundleKey];
+  if (snapshotFresh() && SNAPSHOT.feeds?.[bundleKey]) {
+    return SNAPSHOT.feeds[bundleKey];
+  }
+  const results = await Promise.allSettled(bundle.feeds.map((f) => fetchFeed(f.url)));
+  return bundle.feeds.map((f, i) => ({
+    name: f.name,
+    items: results[i].status === 'fulfilled' ? results[i].value : [],
+    error: results[i].status === 'rejected' ? results[i].reason.message : null,
+  }));
+}
+
+function filterPolymarketList(markets, category) {
+  let filtered = markets;
+  if (category) {
+    const cat = category.toLowerCase();
+    filtered = filtered.filter((m) => {
+      const hay = `${m.question || ''} ${m.category || ''} ${(m.tags || []).join(' ')}`.toLowerCase();
+      return hay.includes(cat);
+    });
+  }
+  return filtered.slice(0, 15).map((m) => ({
+    question: m.question,
+    url: m.url || `https://polymarket.com/event/${m.slug || m.eventSlug || ''}`,
+    volume24hr: m.volume24hr || m.volume || 0,
+    outcomes: m.outcomes || [],
+    prices: m.prices || [],
+  }));
+}
+
 async function fetchPolymarket(category) {
+  if (snapshotFresh() && SNAPSHOT.polymarket?.length) {
+    return filterPolymarketList(SNAPSHOT.polymarket, category);
+  }
   return withCache(`poly:${category || ''}`, 60 * 1000, () => fetchPolymarketUncached(category));
 }
 
@@ -364,26 +362,52 @@ function normalizeStooqSymbol(s) {
   return `${lower}.us`;
 }
 
-async function fetchQuotesRaw(rawSymbols) {
-  const key = `quotes:${[...rawSymbols].sort().join(',')}`;
-  return withCache(key, 60 * 1000, async () => {
-    const stooqSymbols = rawSymbols.map(normalizeStooqSymbol).join(',');
-    const url = `https://stooq.com/q/l/?s=${stooqSymbols}&f=sd2t2ohlcv&h&e=csv`;
-    const res = await proxiedFetch(url, { direct: false });
-    const csv = await res.text();
-    const lines = csv.trim().split('\n');
-    const header = lines[0].split(',');
-    return lines.slice(1).map((line) => {
-      const cells = line.split(',');
-      const row = {};
-      header.forEach((h, i) => (row[h.trim()] = cells[i]));
-      return {
-        symbol: (row.Symbol || '').toUpperCase(),
-        close: parseFloat(row.Close),
-        open: parseFloat(row.Open),
-      };
-    });
+async function fetchQuotesLive(rawSymbols) {
+  const stooqSymbols = rawSymbols.map(normalizeStooqSymbol).join(',');
+  const url = `https://stooq.com/q/l/?s=${stooqSymbols}&f=sd2t2ohlcv&h&e=csv`;
+  const res = await proxiedFetch(url, { direct: false });
+  const csv = await res.text();
+  const lines = csv.trim().split('\n');
+  const header = lines[0].split(',');
+  return lines.slice(1).map((line) => {
+    const cells = line.split(',');
+    const row = {};
+    header.forEach((h, i) => (row[h.trim()] = cells[i]));
+    return {
+      symbol: (row.Symbol || '').toUpperCase(),
+      close: parseFloat(row.Close),
+      open: parseFloat(row.Open),
+    };
   });
+}
+
+async function fetchQuotesRaw(rawSymbols) {
+  // Prefer the pre-fetched snapshot (instant, no proxy) for any symbol it
+  // covers; only live-fetch the ones it doesn't (e.g. a custom portfolio
+  // symbol outside the default set).
+  const fromSnapshot = [];
+  const missing = [];
+  if (snapshotFresh() && SNAPSHOT.quotes) {
+    for (const s of rawSymbols) {
+      const key = normalizeStooqSymbol(s).toUpperCase();
+      const q = SNAPSHOT.quotes[key];
+      if (q && !isNaN(q.close)) fromSnapshot.push({ symbol: key, close: q.close, open: q.open });
+      else missing.push(s);
+    }
+  } else {
+    missing.push(...rawSymbols);
+  }
+  if (!missing.length) return fromSnapshot;
+
+  const key = `quotes:${[...missing].sort().join(',')}`;
+  try {
+    const live = await withCache(key, 60 * 1000, () => fetchQuotesLive(missing));
+    return [...fromSnapshot, ...live];
+  } catch (err) {
+    // A failed live top-up shouldn't discard quotes we already have cached.
+    if (fromSnapshot.length) return fromSnapshot;
+    throw err;
+  }
 }
 
 async function fetchQuotes(symbols) {
@@ -392,6 +416,11 @@ async function fetchQuotes(symbols) {
 }
 
 async function fetchSparkline(rawSymbol) {
+  if (snapshotFresh() && SNAPSHOT.sparklines) {
+    const key = normalizeStooqSymbol(rawSymbol).toUpperCase();
+    const cached = SNAPSHOT.sparklines[key] || SNAPSHOT.sparklines[rawSymbol.toUpperCase()];
+    if (cached && cached.length) return cached;
+  }
   return withCache(`spark:${rawSymbol}`, 15 * 60 * 1000, async () => {
     const sym = normalizeStooqSymbol(rawSymbol);
     const url = `https://stooq.com/q/d/l/?s=${sym}&i=d`;
@@ -424,6 +453,7 @@ function sparklineSVG(values, cls) {
 // and CORS-enabled, so it's fetched directly (no proxy needed).
 // ---------------------------------------------------------------------------
 async function fetchWikiTrending() {
+  if (snapshotFresh() && SNAPSHOT.wikiTrending?.length) return SNAPSHOT.wikiTrending;
   return withCache('wiki-trending', 30 * 60 * 1000, async () => {
     // Top-articles data for "today" usually isn't published yet; use yesterday.
     const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -452,6 +482,7 @@ async function fetchWikiTrending() {
 // routed through the proxy chain.
 // ---------------------------------------------------------------------------
 async function fetchTreasuryYields() {
+  if (snapshotFresh() && SNAPSHOT.treasury?.rates?.length) return SNAPSHOT.treasury;
   return withCache('treasury-yields', 60 * 60 * 1000, async () => {
     const year = new Date().getFullYear();
     const url = `https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/${year}/all?type=daily_treasury_yield_curve&field_tdr_date_value=${year}&page&_format=csv`;
@@ -470,6 +501,7 @@ async function fetchTreasuryYields() {
 // USGS earthquakes — free, keyless, CORS-enabled GeoJSON feed.
 // ---------------------------------------------------------------------------
 async function fetchEarthquakes() {
+  if (snapshotFresh() && SNAPSHOT.earthquakes?.length) return SNAPSHOT.earthquakes;
   return withCache('earthquakes', 5 * 60 * 1000, async () => {
     const url = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson';
     const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
@@ -583,6 +615,8 @@ function widgetIcon(widget) {
 function renderGrid() {
   grid.innerHTML = '';
   state.widgets.forEach((widget, i) => grid.appendChild(renderWidget(widget, i)));
+  initSidebar();
+  applyCategoryFilter();
 }
 
 function renderWidget(widget, index = 0) {
@@ -590,6 +624,7 @@ function renderWidget(widget, index = 0) {
   el.className = 'widget';
   el.draggable = true;
   el.dataset.id = widget.id;
+  el.dataset.category = WIDGET_CATEGORIES[widget.type] || 'other';
 
   el.innerHTML = `
     <div class="widget-header">
@@ -654,19 +689,25 @@ async function loadWidgetData(widget, el) {
   const body = el.querySelector('.widget-body');
   try {
     if (widget.type === 'feed-bundle') {
-      const bundle = FEED_BUNDLES[widget.config.bundle];
-      const results = await Promise.allSettled(bundle.feeds.map((f) => fetchFeed(f.url)));
+      const results = await fetchBundle(widget.config.bundle);
       body.innerHTML = '';
       let any = false;
-      results.forEach((r, i) => {
+      results.forEach((r) => {
         const group = document.createElement('div');
         group.className = 'feed-source-group';
         const h4 = document.createElement('h4');
-        h4.textContent = bundle.feeds[i].name;
+        h4.textContent = r.name;
         group.appendChild(h4);
-        if (r.status === 'fulfilled' && r.value.length) {
+        if (!r.error) {
           any = true;
-          r.value.slice(0, 5).forEach((item) => group.appendChild(renderFeedItem(item)));
+          if (r.items.length) {
+            r.items.slice(0, 5).forEach((item) => group.appendChild(renderFeedItem(item)));
+          } else {
+            const empty = document.createElement('div');
+            empty.className = 'empty-state';
+            empty.textContent = 'No recent items';
+            group.appendChild(empty);
+          }
         } else {
           const err = document.createElement('div');
           err.className = 'error-state';
@@ -1016,12 +1057,9 @@ async function loadTicker() {
     const bundles = ['tier1', 'breaking'];
     const allItems = [];
     for (const b of bundles) {
-      const feeds = FEED_BUNDLES[b].feeds.slice(0, 4);
-      const results = await Promise.allSettled(feeds.map((f) => fetchFeed(f.url)));
-      results.forEach((r, i) => {
-        if (r.status === 'fulfilled') {
-          r.value.slice(0, 3).forEach((item) => allItems.push({ ...item, tag: feeds[i].name }));
-        }
+      const results = (await fetchBundle(b)).slice(0, 4);
+      results.forEach((r) => {
+        if (!r.error) r.items.slice(0, 3).forEach((item) => allItems.push({ ...item, tag: r.name }));
       });
     }
     if (!allItems.length) {
@@ -1157,6 +1195,42 @@ document.getElementById('confirmAddWidget').addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Left-rail modules sidebar — filters the widget grid by category.
+// ---------------------------------------------------------------------------
+let activeCategory = 'all';
+
+function initSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  const counts = {};
+  state.widgets.forEach((w) => {
+    const cat = WIDGET_CATEGORIES[w.type] || 'other';
+    counts[cat] = (counts[cat] || 0) + 1;
+  });
+  const cats = ['all', ...Object.keys(CATEGORY_LABELS).filter((c) => counts[c])];
+  sidebar.innerHTML = cats
+    .map((c) => {
+      const label = c === 'all' ? 'All Widgets' : CATEGORY_LABELS[c];
+      const count = c === 'all' ? state.widgets.length : counts[c];
+      return `<button class="sidebar-btn${c === activeCategory ? ' active' : ''}" data-cat="${c}">${escapeHtml(label)}<span class="count">${count}</span></button>`;
+    })
+    .join('');
+  sidebar.querySelectorAll('.sidebar-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      activeCategory = btn.dataset.cat;
+      initSidebar();
+      applyCategoryFilter();
+    });
+  });
+}
+
+function applyCategoryFilter() {
+  document.querySelectorAll('.widget').forEach((el) => {
+    const matches = activeCategory === 'all' || el.dataset.category === activeCategory;
+    el.classList.toggle('category-hidden', !matches);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Live search filter — filters already-rendered items across all widgets
 // as you type, no network requests involved.
 // ---------------------------------------------------------------------------
@@ -1204,8 +1278,17 @@ function escapeAttr(str) {
 // ---------------------------------------------------------------------------
 applyTheme();
 applyTickerSpeed();
-renderGrid();
-loadTicker();
-loadSecondaryTicker();
+
+(async () => {
+  // Load the snapshot before rendering anything that depends on it — once
+  // this resolves, every fetch* function above transparently prefers the
+  // cached snapshot data over a live proxied fetch.
+  await loadSnapshot();
+  renderGrid();
+  loadTicker();
+  loadSecondaryTicker();
+})();
+
 setInterval(loadTicker, 5 * 60 * 1000);
 setInterval(loadSecondaryTicker, 2 * 60 * 1000);
+setInterval(loadSnapshot, 10 * 60 * 1000);

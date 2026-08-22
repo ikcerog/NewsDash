@@ -1,0 +1,49 @@
+name: Fetch Data Snapshot
+
+# The "free DB backstop": runs server-side (no CORS/proxy involved), fetches
+# every feed/quote/API NewsDash uses, and commits the result to
+# public/data/snapshot.json. The static site just reads that file directly
+# instead of hitting live proxied APIs on every page load — instant and
+# far more reliable. Pushing this file also triggers the Pages redeploy.
+
+on:
+  schedule:
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fetch-snapshot
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Fetch snapshot
+        run: node scripts/fetch-snapshot.mjs
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/data/snapshot.json
+          if git diff --cached --quiet; then
+            echo "No changes to snapshot."
+          else
+            git commit -m "chore: update data snapshot"
+            git push
+          fi

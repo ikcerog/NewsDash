@@ -12,7 +12,7 @@
     <div class="brand">
       <span class="brand-mark">◆</span>
       <span class="brand-name">NewsDash</span>
-      <button id="versionChip" class="version-chip" title="View patch notes">v0.2.3</button>
+      <button id="versionChip" class="version-chip" title="View patch notes">v0.2.4</button>
     </div>
     <div class="search-wrap">
       <input type="text" id="globalSearch" class="search-input" placeholder="Filter headlines as you type…" />
@@ -34,7 +34,10 @@
     <div id="tickerTrack2" class="ticker-track">Loading markets…</div>
   </div>
 
-  <main id="widgetGrid" class="widget-grid"></main>
+  <div class="app-body">
+    <aside id="sidebar" class="sidebar" aria-label="Widget modules"></aside>
+    <main id="widgetGrid" class="widget-grid"></main>
+  </div>
 
   <footer class="app-footer">
     <span>NewsDash — built on free &amp; open RSS/APIs. No tracking, no keys required.</span>
@@ -121,6 +124,6 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-  <script src="app.js" defer></script>
+  <script src="app.js" type="module"></script>
 </body>
 </html>
