@@ -263,10 +263,13 @@ export const FEED_BUNDLES = {
       { name: 'Nature', url: 'https://www.nature.com/nature.rss' },
       { name: 'Scientific American (Google News)', url: 'https://news.google.com/rss/search?q=site:scientificamerican.com&hl=en-US&gl=US&ceid=US:en' },
       { name: 'IEEE Spectrum', url: 'https://spectrum.ieee.org/rss/fulltext' },
-      // export.arxiv.org's classic RSS parsed with 0 items in production
-      // (arXiv moved its RSS feeds to rss.arxiv.org some time ago).
-      { name: 'arXiv — cs.AI', url: 'https://rss.arxiv.org/rss/cs.AI' },
-      { name: 'arXiv — astro-ph', url: 'https://rss.arxiv.org/rss/astro-ph' },
+      // Both export.arxiv.org/rss/* and rss.arxiv.org/rss/* parsed with 0
+      // items in production (two guesses, two misses — arXiv's real RSS
+      // path/format isn't one I can confirm without live web access here).
+      // Falls back to the same reliable Google News site-search pattern
+      // used for Gutenberg above.
+      { name: 'arXiv — cs.AI (Google News)', url: 'https://news.google.com/rss/search?q=site:arxiv.org+cs.AI&hl=en-US&gl=US&ceid=US:en' },
+      { name: 'arXiv — astro-ph (Google News)', url: 'https://news.google.com/rss/search?q=site:arxiv.org+astro-ph&hl=en-US&gl=US&ceid=US:en' },
       // The guessed gutenberg.org RSS path 404'd to a non-XML page in
       // production ("Unexpected close tag") — fall back to the same
       // Google News site-search pattern used elsewhere in the app, which
