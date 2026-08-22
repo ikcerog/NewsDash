@@ -28,8 +28,20 @@ async function safe(label, fn) {
   }
 }
 
+// rss-parser's own `timeout` option doesn't reliably cover every hang case
+// (e.g. a server that accepts the connection but drips data forever without
+// closing it) — this is a hard backstop so a single bad feed can never stall
+// the whole run indefinitely, regardless of what the library does internally.
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function fetchFeedItems(url) {
-  const feed = await parser.parseURL(url);
+  const feed = await withTimeout(parser.parseURL(url), 15000, 'parseURL');
   return (feed.items || []).slice(0, 12).map((it) => ({
     title: it.title || '(untitled)',
     link: it.link || '#',
@@ -39,15 +51,23 @@ async function fetchFeedItems(url) {
 
 async function fetchAllBundles() {
   const out = {};
-  for (const [key, bundle] of Object.entries(FEED_BUNDLES)) {
-    const results = await Promise.allSettled(bundle.feeds.map((f) => fetchFeedItems(f.url)));
-    out[key] = bundle.feeds.map((f, i) => ({
-      name: f.name,
-      items: results[i].status === 'fulfilled' ? results[i].value : [],
-      error: results[i].status === 'rejected' ? results[i].reason.message : null,
-    }));
-    console.log(`bundle ${key}: ${out[key].filter((f) => !f.error).length}/${out[key].length} feeds ok`);
-  }
+  // Bundles run in parallel (not just the feeds within each one) — with
+  // ~10 bundles and a hard per-feed timeout, this bounds total feed-fetch
+  // time to ~15s worst case instead of up to 10x that run sequentially.
+  const bundleEntries = Object.entries(FEED_BUNDLES);
+  const bundleResults = await Promise.all(
+    bundleEntries.map(async ([key, bundle]) => {
+      const results = await Promise.allSettled(bundle.feeds.map((f) => fetchFeedItems(f.url)));
+      const rows = bundle.feeds.map((f, i) => ({
+        name: f.name,
+        items: results[i].status === 'fulfilled' ? results[i].value : [],
+        error: results[i].status === 'rejected' ? results[i].reason.message : null,
+      }));
+      console.log(`bundle ${key}: ${rows.filter((f) => !f.error).length}/${rows.length} feeds ok`);
+      return [key, rows];
+    })
+  );
+  bundleResults.forEach(([key, rows]) => (out[key] = rows));
   return out;
 }
 

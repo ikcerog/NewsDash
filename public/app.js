@@ -15,10 +15,18 @@ import {
   STATUS_SERVICES,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.2.9';
+} from './shared-config.js?v=0.2.10';
 
-const APP_VERSION = '0.2.9';
+const APP_VERSION = '0.2.10';
 const PATCH_NOTES = [
+  {
+    version: '0.2.10',
+    date: '2026-08-22',
+    notes: [
+      'Fixed the snapshot Action hanging indefinitely: rss-parser\'s own timeout didn\'t reliably cover every hang case, so a single unresponsive feed could stall the whole run. Added a hard 15s outer timeout on every feed fetch.',
+      'Parallelized feed bundles in the snapshot script (was sequential) — cuts total feed-fetch time from up to ~10x a single bundle\'s worst case down to about 1x.',
+    ],
+  },
   {
     version: '0.2.9',
     date: '2026-08-22',
