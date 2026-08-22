@@ -15,10 +15,15 @@ import {
   STATUS_SERVICES,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.2.8';
+} from './shared-config.js?v=0.2.9';
 
-const APP_VERSION = '0.2.8';
+const APP_VERSION = '0.2.9';
 const PATCH_NOTES = [
+  {
+    version: '0.2.9',
+    date: '2026-08-22',
+    notes: ['Added a favicon.'],
+  },
   {
     version: '0.2.8',
     date: '2026-08-22',
