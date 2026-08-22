@@ -62,7 +62,10 @@ async function fetchRedditItems(url) {
   try {
     return mapFeedItems(await parser.parseURL(url));
   } catch (err) {
-    if (!/status code 403/i.test(err.message)) throw err;
+    // Reddit's IP-based blocking shows up inconsistently as 403 or 429
+    // depending on which of the parallel bundle requests land together —
+    // both are the same underlying block, so both retry via proxy.
+    if (!/status code (403|429)/i.test(err.message)) throw err;
     const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
     const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
     if (!res.ok) throw new Error(`reddit proxy ${res.status}`);
