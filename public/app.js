@@ -15,10 +15,19 @@ import {
   STATUS_SERVICES,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.2.7';
+} from './shared-config.js?v=0.2.8';
 
-const APP_VERSION = '0.2.7';
+const APP_VERSION = '0.2.8';
 const PATCH_NOTES = [
+  {
+    version: '0.2.8',
+    date: '2026-08-22',
+    notes: [
+      'Added rss2json.com as a distinct RSS fallback path — separate infrastructure from the generic CORS proxy chain, tried only if all of those fail outright.',
+      'Added a 4th general-purpose CORS proxy (thingproxy) to the race.',
+      'Added CNBC, Bloomberg, and Fox Business to Tier 1 Headlines.',
+    ],
+  },
   {
     version: '0.2.7',
     date: '2026-08-22',
@@ -127,6 +136,7 @@ const CORS_PROXIES = [
   (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
   (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
   (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+  (url) => `https://thingproxy.freeboard.io/fetch/${url}`,
 ];
 
 // MARKET_GROUPS and FEED_BUNDLES now live in shared-config.js (imported above).
@@ -316,11 +326,33 @@ function parseFeedXML(xmlText) {
   return items;
 }
 
+// rss2json.com is a free, keyless, purpose-built RSS-to-JSON service with
+// its own CORS-enabled infrastructure — a genuinely different path from
+// the generic CORS_PROXIES chain (which shares congested, often-throttled
+// infrastructure across every kind of request). Tried only after the
+// generic chain fails outright.
+async function fetchFeedViaRss2Json(url) {
+  const api = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}&_cb=${Date.now()}`;
+  const res = await fetch(api, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
+  if (!res.ok) throw new Error(`rss2json ${res.status}`);
+  const data = await res.json();
+  if (data.status !== 'ok') throw new Error(data.message || 'rss2json failed');
+  return (data.items || []).slice(0, 12).map((it) => ({
+    title: it.title || '(untitled)',
+    link: it.link || '#',
+    pubDate: it.pubDate || null,
+  }));
+}
+
 async function fetchFeed(url) {
   return withCache(`feed:${url}`, 4 * 60 * 1000, async () => {
-    const res = await proxiedFetch(url, { direct: false });
-    const text = await res.text();
-    return parseFeedXML(text);
+    try {
+      const res = await proxiedFetch(url, { direct: false });
+      const text = await res.text();
+      return parseFeedXML(text);
+    } catch (err) {
+      return fetchFeedViaRss2Json(url);
+    }
   });
 }
 

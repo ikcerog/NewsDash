@@ -112,6 +112,9 @@ export const FEED_BUNDLES = {
     feeds: [
       { name: 'WSJ World (Google News)', url: 'https://news.google.com/rss/search?q=site:wsj.com+when:2d&hl=en-US&gl=US&ceid=US:en' },
       { name: 'WSJ Markets (Google News)', url: 'https://news.google.com/rss/search?q=site:wsj.com+markets+when:2d&hl=en-US&gl=US&ceid=US:en' },
+      { name: 'CNBC (Google News)', url: 'https://news.google.com/rss/search?q=site:cnbc.com+when:2d&hl=en-US&gl=US&ceid=US:en' },
+      { name: 'Bloomberg (Google News)', url: 'https://news.google.com/rss/search?q=site:bloomberg.com+when:2d&hl=en-US&gl=US&ceid=US:en' },
+      { name: 'Fox Business (Google News)', url: 'https://news.google.com/rss/search?q=site:foxbusiness.com+when:3d&hl=en-US&gl=US&ceid=US:en' },
       { name: 'BBC World', url: 'http://feeds.bbci.co.uk/news/world/rss.xml' },
       { name: 'NPR News', url: 'https://feeds.npr.org/1001/rss.xml' },
       { name: 'NYT Home Page', url: 'https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml' },
