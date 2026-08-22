@@ -263,9 +263,15 @@ export const FEED_BUNDLES = {
       { name: 'Nature', url: 'https://www.nature.com/nature.rss' },
       { name: 'Scientific American (Google News)', url: 'https://news.google.com/rss/search?q=site:scientificamerican.com&hl=en-US&gl=US&ceid=US:en' },
       { name: 'IEEE Spectrum', url: 'https://spectrum.ieee.org/rss/fulltext' },
-      { name: 'arXiv — cs.AI', url: 'https://export.arxiv.org/rss/cs.AI' },
-      { name: 'arXiv — astro-ph', url: 'https://export.arxiv.org/rss/astro-ph' },
-      { name: 'Project Gutenberg — New Releases', url: 'https://www.gutenberg.org/feeds/today.rss' },
+      // export.arxiv.org's classic RSS parsed with 0 items in production
+      // (arXiv moved its RSS feeds to rss.arxiv.org some time ago).
+      { name: 'arXiv — cs.AI', url: 'https://rss.arxiv.org/rss/cs.AI' },
+      { name: 'arXiv — astro-ph', url: 'https://rss.arxiv.org/rss/astro-ph' },
+      // The guessed gutenberg.org RSS path 404'd to a non-XML page in
+      // production ("Unexpected close tag") — fall back to the same
+      // Google News site-search pattern used elsewhere in the app, which
+      // is always well-formed XML even if coverage is thinner.
+      { name: 'Project Gutenberg (Google News)', url: 'https://news.google.com/rss/search?q=site:gutenberg.org&hl=en-US&gl=US&ceid=US:en' },
       { name: 'Internet Archive Blog', url: 'https://blog.archive.org/feed/' },
     ],
   },
