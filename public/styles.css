@@ -89,6 +89,8 @@ table th, .feed-source-group h4, .mo-name,
   cursor: pointer;
 }
 .version-chip:hover { color: var(--accent); border-color: var(--accent); }
+.loadtime-chip { cursor: default; }
+.loadtime-chip:hover { color: var(--text-muted); border-color: var(--border); }
 
 .mobile-menu-btn { display: none; }
 

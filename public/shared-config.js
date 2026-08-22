@@ -2,6 +2,16 @@
 // (public/app.js, as an ES module) and the Node snapshot script
 // (scripts/fetch-snapshot.mjs), so the two never drift apart.
 
+// Handles (not IDs) for a short, curated list of channels — resolved to a
+// real channel ID and RSS feed server-side in scripts/fetch-snapshot.mjs.
+export const YOUTUBE_CHANNELS = [
+  { name: 'WDWNT', handle: 'WDWNT' },
+  { name: 'Soul So Breezy', handle: 'Soulsobreezy' },
+  { name: 'Watch It For Days', handle: 'watchitfordays' },
+  { name: 'Magical Escapes', handle: 'MagicalEscapesTV' },
+  { name: 'National Geographic', handle: 'NatGeo' },
+];
+
 export const MARKET_GROUPS = {
   indices: {
     label: 'Indices',
@@ -247,6 +257,30 @@ export const FEED_BUNDLES = {
       { name: 'Disney Movies (Google News)', url: 'https://news.google.com/rss/search?q=%22Disney%22+(movie+OR+film+OR+box+office)+when:3d&hl=en-US&gl=US&ceid=US:en' },
     ],
   },
+  science: {
+    label: 'Sciences',
+    feeds: [
+      { name: 'Nature', url: 'https://www.nature.com/nature.rss' },
+      { name: 'Scientific American (Google News)', url: 'https://news.google.com/rss/search?q=site:scientificamerican.com&hl=en-US&gl=US&ceid=US:en' },
+      { name: 'IEEE Spectrum', url: 'https://spectrum.ieee.org/rss/fulltext' },
+      { name: 'arXiv — cs.AI', url: 'https://export.arxiv.org/rss/cs.AI' },
+      { name: 'arXiv — astro-ph', url: 'https://export.arxiv.org/rss/astro-ph' },
+      { name: 'Project Gutenberg — New Releases', url: 'https://www.gutenberg.org/feeds/today.rss' },
+      { name: 'Internet Archive Blog', url: 'https://blog.archive.org/feed/' },
+    ],
+  },
+  // YouTube channel handles, not ready-made feed URLs — a channel's real
+  // videos.xml feed needs its numeric channel ID, which the snapshot script
+  // resolves server-side (fetches the channel's about page, extracts the
+  // ID, then feeds videos.xml through the same rss-parser pipeline as
+  // everything else). This entry only exists so the widget gets a label,
+  // icon, and sidebar category the same way every other bundle does — its
+  // `feeds` here are names only, live client-side fallback isn't attempted
+  // (this bundle relies on the snapshot; it refreshes every ~20 minutes).
+  youtube: {
+    label: 'YouTube Channels',
+    feeds: YOUTUBE_CHANNELS.map((c) => ({ name: c.name, url: null })),
+  },
 };
 
 // Quick-filter presets for the Polymarket widget. Polymarket's markets
@@ -303,6 +337,8 @@ export const WIDGET_CATEGORIES = {
 // gets its own sidebar section instead of falling into generic "News".
 export const BUNDLE_CATEGORY_OVERRIDES = {
   popculture: 'popculture',
+  science: 'science',
+  youtube: 'video',
 };
 
 export const CATEGORY_LABELS = {
@@ -313,4 +349,6 @@ export const CATEGORY_LABELS = {
   safety: 'Safety & Alerts',
   infra: 'Infrastructure',
   popculture: 'Pop Culture',
+  science: 'Sciences',
+  video: 'Video',
 };

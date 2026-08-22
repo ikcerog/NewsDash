@@ -18,10 +18,19 @@ import {
   POLYMARKET_CATEGORY_KEYWORDS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.2.14';
+} from './shared-config.js?v=0.5.0';
 
-const APP_VERSION = '0.2.14';
+const APP_VERSION = '0.5.0';
 const PATCH_NOTES = [
+  {
+    version: '0.5.0',
+    date: '2026-08-22',
+    notes: [
+      'Added a load-time chip next to the version chip showing how long the page took to load.',
+      'Added a Sciences module: Nature, Scientific American, IEEE Spectrum, arXiv (cs.AI and astro-ph), Project Gutenberg new releases, and the Internet Archive blog.',
+      'Added a YouTube Channels module: WDWNT, Soul So Breezy, Watch It For Days, Magical Escapes, and National Geographic. Resolved server-side (channel handle → feed) in the snapshot script since YouTube only serves RSS per numeric channel ID, not by handle — this module relies on the snapshot and refreshes every ~20 minutes.',
+    ],
+  },
   {
     version: '0.2.14',
     date: '2026-08-22',
@@ -273,6 +282,8 @@ function defaultState() {
       { id: uid(), type: 'feed-bundle', config: { bundle: 'ainews' } },
       { id: uid(), type: 'feed-bundle', config: { bundle: 'cloudops' } },
       { id: uid(), type: 'feed-bundle', config: { bundle: 'popculture' } },
+      { id: uid(), type: 'feed-bundle', config: { bundle: 'science' } },
+      { id: uid(), type: 'feed-bundle', config: { bundle: 'youtube' } },
       { id: uid(), type: 'cryptrack', config: {} },
       { id: uid(), type: 'movers', config: {} },
     ],
@@ -428,6 +439,14 @@ async function fetchBundle(bundleKey) {
   const bundle = FEED_BUNDLES[bundleKey];
   if (snapshotFresh() && SNAPSHOT.feeds?.[bundleKey]) {
     return SNAPSHOT.feeds[bundleKey];
+  }
+  // "youtube" feeds have no static url (see the YOUTUBE_CHANNELS comment
+  // in shared-config.js) — they only exist via the snapshot, resolved
+  // server-side. If the snapshot is stale/missing, there's nothing to
+  // live-fetch; skip straight to a clear per-row "unavailable" instead of
+  // wasting a network round trip on a null URL.
+  if (bundleKey === 'youtube') {
+    return bundle.feeds.map((f) => ({ name: f.name, items: [], error: 'Refreshes with the next data snapshot' }));
   }
   const results = await Promise.allSettled(bundle.feeds.map((f) => fetchFeed(f.url)));
   return bundle.feeds.map((f, i) => ({
@@ -1764,6 +1783,18 @@ window.addEventListener(
   { passive: true }
 );
 scrollTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+
+// ---------------------------------------------------------------------------
+// Load time chip — how long this page took to load, next to the version chip.
+// ---------------------------------------------------------------------------
+window.addEventListener('load', () => {
+  const chip = document.getElementById('loadTimeChip');
+  if (!chip) return;
+  const nav = performance.getEntriesByType('navigation')[0];
+  const seconds = (nav ? nav.loadEventEnd : performance.now()) / 1000;
+  chip.textContent = `⏱ ${seconds.toFixed(2)}s`;
+  chip.title = `Page loaded in ${seconds.toFixed(2)}s`;
+});
 
 // ---------------------------------------------------------------------------
 // Scroll lock — freezes each widget's internal scroll so a touch drag always

@@ -9,7 +9,7 @@ import Parser from 'rss-parser';
 import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FEED_BUNDLES, MARKET_GROUPS, DEFAULT_PORTFOLIO, STATUS_SERVICES, normalizeStooqSymbol, toYahooSymbol } from '../public/shared-config.js';
+import { FEED_BUNDLES, MARKET_GROUPS, DEFAULT_PORTFOLIO, STATUS_SERVICES, YOUTUBE_CHANNELS, normalizeStooqSymbol, toYahooSymbol } from '../public/shared-config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = path.join(__dirname, '../public/data/snapshot.json');
@@ -121,7 +121,10 @@ async function fetchAllBundles() {
   // Bundles run in parallel (not just the feeds within each one) — with
   // ~10 bundles and a hard per-feed timeout, this bounds total feed-fetch
   // time to ~15s worst case instead of up to 10x that run sequentially.
-  const bundleEntries = Object.entries(FEED_BUNDLES);
+  // "youtube" is excluded here — its feeds have no static url (see
+  // fetchYouTubeBundle below, which resolves each channel's real feed URL
+  // first) and is fetched separately, merged into the same `feeds` object.
+  const bundleEntries = Object.entries(FEED_BUNDLES).filter(([key]) => key !== 'youtube');
   const bundleResults = await Promise.all(
     bundleEntries.map(async ([key, bundle]) => {
       const results = await Promise.allSettled(bundle.feeds.map((f) => fetchFeedItems(f.url)));
@@ -136,6 +139,43 @@ async function fetchAllBundles() {
   );
   bundleResults.forEach(([key, rows]) => (out[key] = rows));
   return out;
+}
+
+// YouTube's RSS feed only exists per numeric channel ID (videos.xml?
+// channel_id=UC...), not per @handle, and there's no key-free API to
+// resolve one to the other — so this fetches the channel's public "about"
+// page and regexes the ID out of it (a standard, widely-used technique),
+// then feeds the resulting URL through the same rss-parser pipeline as
+// every other feed.
+async function resolveYouTubeChannelId(handle) {
+  const res = await fetch(`https://www.youtube.com/@${handle}`, {
+    signal: AbortSignal.timeout(10000),
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' },
+  });
+  if (!res.ok) throw new Error(`channel page ${res.status}`);
+  const html = await res.text();
+  const match = html.match(/"channelId":"(UC[0-9A-Za-z_-]{22})"/);
+  if (!match) throw new Error('channel id not found');
+  return match[1];
+}
+
+async function fetchYouTubeChannel(handle) {
+  const channelId = await resolveYouTubeChannelId(handle);
+  const feed = await parser.parseURL(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`);
+  return mapFeedItems(feed);
+}
+
+async function fetchYouTubeBundle() {
+  const results = await Promise.allSettled(
+    YOUTUBE_CHANNELS.map((c) => withTimeout(fetchYouTubeChannel(c.handle), 20000, 'youtube'))
+  );
+  const rows = YOUTUBE_CHANNELS.map((c, i) => ({
+    name: c.name,
+    items: results[i].status === 'fulfilled' ? results[i].value : [],
+    error: results[i].status === 'rejected' ? results[i].reason.message : null,
+  }));
+  console.log(`bundle youtube: ${rows.filter((f) => !f.error).length}/${rows.length} channels ok`);
+  return rows;
 }
 
 async function fetchPolymarket() {
@@ -371,8 +411,9 @@ async function main() {
   const allMarketSymbols = Object.values(MARKET_GROUPS).flatMap((g) => g.symbols.map((s) => s.sym));
   const sparklineSymbols = [...new Set([...allMarketSymbols, ...DEFAULT_PORTFOLIO])];
 
-  const [feeds, polymarket, quotes, wikiTrending, treasury, earthquakes, nationalAlerts, serviceStatus, globalDisasters] = await Promise.all([
+  const [feeds, youtube, polymarket, quotes, wikiTrending, treasury, earthquakes, nationalAlerts, serviceStatus, globalDisasters] = await Promise.all([
     safe('feed bundles', fetchAllBundles),
+    safe('youtube', fetchYouTubeBundle),
     safe('polymarket', fetchPolymarket),
     safe('quotes', () => fetchQuotes(sparklineSymbols)),
     safe('wiki trending', fetchWikiTrending),
@@ -382,6 +423,8 @@ async function main() {
     safe('service status', fetchServiceStatus),
     safe('global disasters', fetchGlobalDisasters),
   ]);
+  const feedsWithYoutube = { ...(feeds || {}) };
+  if (youtube) feedsWithYoutube.youtube = youtube;
 
   const sparklineResults = await Promise.allSettled(sparklineSymbols.map((s) => fetchSparkline(s)));
   const sparklines = {};
@@ -409,7 +452,7 @@ async function main() {
 
   const snapshot = {
     generatedAt: new Date().toISOString(),
-    feeds: feeds || {},
+    feeds: feedsWithYoutube,
     polymarket: polymarket || [],
     quotes: finalQuotes,
     sparklines,
