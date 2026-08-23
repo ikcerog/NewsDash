@@ -668,25 +668,34 @@ function sparklineSVG(values, cls) {
 async function fetchWikiTrending() {
   if (snapshotFresh() && SNAPSHOT.wikiTrending?.length) return SNAPSHOT.wikiTrending;
   return withCache('wiki-trending', 30 * 60 * 1000, async () => {
-    // Top-articles data for "today" usually isn't published yet; use yesterday.
-    const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const y = d.getUTCFullYear();
-    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(d.getUTCDate()).padStart(2, '0');
-    const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${y}/${m}/${day}`;
-    const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
-    if (!res.ok) throw new Error(`Wikimedia ${res.status}`);
-    const data = await res.json();
-    const articles = data.items?.[0]?.articles || [];
-    const skip = new Set(['Main_Page', 'Special:Search', 'Special:SpecialPages']);
-    return articles
-      .filter((a) => !skip.has(a.article) && !a.article.startsWith('Special:'))
-      .slice(0, 15)
-      .map((a) => ({
-        title: a.article.replace(/_/g, ' '),
-        views: a.views,
-        link: `https://en.wikipedia.org/wiki/${a.article}`,
-      }));
+    // Top-articles data can lag more than a day behind; try yesterday, then
+    // the day before that.
+    let lastErr;
+    for (const daysAgo of [1, 2]) {
+      const d = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
+      const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${y}/${m}/${day}`;
+      try {
+        const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
+        if (!res.ok) throw new Error(`Wikimedia ${res.status}`);
+        const data = await res.json();
+        const articles = data.items?.[0]?.articles || [];
+        const skip = new Set(['Main_Page', 'Special:Search', 'Special:SpecialPages']);
+        return articles
+          .filter((a) => !skip.has(a.article) && !a.article.startsWith('Special:'))
+          .slice(0, 15)
+          .map((a) => ({
+            title: a.article.replace(/_/g, ' '),
+            views: a.views,
+            link: `https://en.wikipedia.org/wiki/${a.article}`,
+          }));
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr;
   });
 }
 

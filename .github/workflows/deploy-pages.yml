@@ -4,6 +4,18 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # The "Fetch Data Snapshot" job commits/pushes with the default
+  # GITHUB_TOKEN, and GitHub deliberately does not let a GITHUB_TOKEN-authored
+  # push trigger other workflows (anti-recursion protection) — so the `push`
+  # trigger above never fires for those auto-commits, only for a human push.
+  # Without this, the deployed snapshot.json can silently go hours stale
+  # (site still green in the fetch-snapshot logs, but Pages never picks up
+  # the new file), forcing the client into its live-fetch fallback path and
+  # producing exactly the CORS-proxy failure storm this was meant to avoid.
+  # workflow_run isn't subject to that restriction, so redeploy off of it too.
+  workflow_run:
+    workflows: [Fetch Data Snapshot]
+    types: [completed]
 
 permissions:
   contents: read
@@ -16,6 +28,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -23,6 +36,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
