@@ -17,6 +17,7 @@
   --font-serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
 }
 
+/* "Dusk" — the original warm dark theme (terracotta on near-black brown). */
 html[data-theme="dark"] {
   --bg: #171310;
   --bg-elevated: #201c16;
@@ -29,6 +30,21 @@ html[data-theme="dark"] {
   --up: #63b072;
   --down: #e2624a;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* "Midnight" — a cooler, soothing deep-blue dark theme. */
+html[data-theme="midnight"] {
+  --bg: #0a1120;
+  --bg-elevated: #101a2e;
+  --bg-widget-header: #16233d;
+  --text: #dce6f5;
+  --text-muted: #8593b3;
+  --border: #223252;
+  --accent: #5b9bf0;
+  --accent-contrast: #0a1120;
+  --up: #4fd08a;
+  --down: #ee6f6f;
+  --shadow: 0 1px 3px rgba(0, 0, 10, 0.5), 0 1px 2px rgba(0, 0, 10, 0.35);
 }
 
 * { box-sizing: border-box; }
@@ -201,8 +217,7 @@ table th, .feed-source-group h4, .mo-name,
 .ticker-speed-btn:active { background: var(--accent); color: var(--accent-contrast); }
 .ticker-track {
   display: inline-block;
-  padding-left: 100%;
-  animation: ticker-scroll 60s linear infinite;
+  animation: ticker-scroll 105s linear infinite;
   font-size: 0.85rem;
 }
 .ticker-track a { color: var(--text); text-decoration: none; margin-right: 2.5rem; }
@@ -212,9 +227,14 @@ table th, .feed-source-group h4, .mo-name,
   font-weight: 700;
   margin-right: 0.4rem;
 }
+/* The track's JS-rendered content is duplicated back-to-back (see
+   setTickerContent in app.js), so scrolling exactly half its width loops
+   seamlessly — the moment the first copy scrolls off, the second is
+   already sitting where the first started, instead of going blank while
+   waiting for a full padding-buffered cycle to complete. */
 @keyframes ticker-scroll {
   0% { transform: translateX(0); }
-  100% { transform: translateX(-100%); }
+  100% { transform: translateX(-50%); }
 }
 .ticker-scroll-area:hover .ticker-track { animation-play-state: paused; }
 
@@ -311,6 +331,57 @@ body.sidebar-collapsed .sidebar-toggle-btn { align-self: center; }
   background: var(--bg);
   border: 1px solid var(--border);
 }
+
+.sidebar-feeds-section {
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.sidebar-section-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 0 0.7rem 0.2rem;
+}
+.sidebar-feed-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.4rem 0.7rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+  font-family: var(--font-sans);
+}
+.sidebar-feed-header:hover { background: var(--bg-widget-header); color: var(--text); }
+.sidebar-feed-header .chevron { font-size: 0.7rem; width: 0.8rem; display: inline-block; color: var(--text-muted); }
+.sidebar-feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.2rem 0.5rem 0.4rem 1.6rem;
+}
+.sidebar-feed-list.hidden { display: none; }
+.sidebar-feed-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.1rem 0;
+}
+.sidebar-feed-row:hover { color: var(--text); }
+.sidebar-feed-row input { accent-color: var(--accent); cursor: pointer; }
 
 .widget-grid {
   flex: 1;
@@ -479,6 +550,7 @@ body.widgets-locked .widget-body { overflow: hidden; touch-action: none; }
    toggle button, rather than disappearing entirely (which would strand it). */
 body.sidebar-collapsed .sidebar { flex: 0 0 auto; width: auto; padding: 1rem 0.5rem; }
 body.sidebar-collapsed .sidebar-btn { display: none; }
+body.sidebar-collapsed .sidebar-feeds-section { display: none; }
 
 .outbound-row {
   display: flex;
@@ -606,6 +678,47 @@ table.portfolio-table td { padding: 0.35rem 0; border-top: 1px solid var(--borde
 .patch-entry .date { color: var(--text-muted); font-size: 0.75rem; margin-left: 0.4rem; }
 .patch-entry ul { margin: 0.35rem 0 0; padding-left: 1.1rem; font-size: 0.85rem; }
 
+.feeds-modal-actions { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.feeds-modal-actions input.hidden { display: none; }
+.feeds-bundle-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 0.9rem;
+  margin-bottom: 0.8rem;
+  background: var(--bg-widget-header);
+}
+.feeds-bundle-group h4 { margin: 0 0 0.5rem; font-size: 0.9rem; }
+.feeds-list { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.6rem; }
+.feed-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.feed-row input { accent-color: var(--accent); cursor: pointer; }
+.feed-row-name { flex: 1; }
+.feed-remove-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.1rem 0.3rem;
+}
+.feed-remove-btn:hover { color: var(--down); }
+.add-feed-form { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.add-feed-form input {
+  flex: 1;
+  min-width: 140px;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
 /* Mobile responsiveness */
 @media (max-width: 640px) {
   .app-header { padding: 0.5rem 0.75rem; flex-wrap: nowrap; }
@@ -654,6 +767,10 @@ table.portfolio-table td { padding: 0.35rem 0; border-top: 1px solid var(--borde
   body.sidebar-collapsed .sidebar { flex: 0 0 auto; width: auto; padding: 0.5rem 0.6rem; overflow-x: auto; }
   body.sidebar-collapsed .sidebar-btn { display: flex; }
   .sidebar-toggle-btn { display: none; }
+  /* The expandable per-feed toggle list doesn't fit the mobile sidebar's
+     horizontal category strip — use the "🗞 Feeds" header button (also in
+     the mobile menu) to manage feeds on small screens instead. */
+  .sidebar-feeds-section { display: none; }
   .scroll-lock-btn { bottom: 4rem; }
   .widget {
     border-radius: 0;

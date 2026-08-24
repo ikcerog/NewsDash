@@ -19,10 +19,20 @@ import {
   POLYMARKET_CATEGORY_KEYWORDS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.5.3';
+} from './shared-config.js?v=0.6.0';
 
-const APP_VERSION = '0.5.3';
+const APP_VERSION = '0.6.0';
 const PATCH_NOTES = [
+  {
+    version: '0.6.0',
+    date: '2026-08-24',
+    notes: [
+      'Ticker: slowed the default speed down (roughly what 3 clicks of the "−" button used to get you to), and made both tickers loop seamlessly — no more going blank for a beat waiting for a full cycle to finish before the next pass starts.',
+      'New "Manage Feeds" module (🗞 Feeds button, header): turn individual sources on/off per bundle, add your own RSS/Atom feeds, and export/import your whole setup as JSON to back it up or move it to another browser.',
+      'Sidebar: every feed-bundle widget now has an expandable row with the same quick-toggles, so you can flip a source on/off without leaving the main view. Same underlying (localStorage) setup as the Feeds module — toggling one updates the other.',
+      'New "Midnight" theme — a cooler, soothing dark-blue palette. The existing dark theme is now named "Dusk"; the theme button cycles Light → Dusk → Midnight.',
+    ],
+  },
   {
     version: '0.5.3',
     date: '2026-08-24',
@@ -282,7 +292,10 @@ function loadState() {
 function defaultState() {
   return {
     theme: 'dark',
-    tickerSpeed: 60,
+    // Previous default (60s) was several notches faster than most people
+    // want to read at — this is what 3 clicks of the "slow down" (−)
+    // button used to get you to from that default.
+    tickerSpeed: 105,
     localZip: null,
     portfolio: [...DEFAULT_PORTFOLIO],
     widgets: [
@@ -466,27 +479,89 @@ async function fetchFeed(url) {
   });
 }
 
-// Returns [{ name, items, error }] aligned with FEED_BUNDLES[bundleKey].feeds.
-// Prefers the snapshot (instant); falls back to live per-feed fetches.
+// ---------------------------------------------------------------------------
+// Per-feed enable/disable + user-added custom feeds. Stored in state so
+// they're saved to localStorage and included in export/import (see the
+// Manage Feeds modal below). Keyed by feed URL (unique within a bundle).
+// ---------------------------------------------------------------------------
+function isFeedEnabled(url) {
+  return state.feedPrefs?.[url]?.enabled !== false;
+}
+function setFeedEnabled(url, enabled) {
+  state.feedPrefs = state.feedPrefs || {};
+  // Default is enabled — only store the exceptions, so a fresh setup /
+  // import doesn't have to carry every feed's state, just the disabled ones.
+  if (enabled) delete state.feedPrefs[url];
+  else state.feedPrefs[url] = { enabled: false };
+  saveState();
+}
+function getCustomFeeds(bundleKey) {
+  return state.customFeeds?.[bundleKey] || [];
+}
+function getBundleFeeds(bundleKey) {
+  const staticFeeds = FEED_BUNDLES[bundleKey]?.feeds || [];
+  return [...staticFeeds, ...getCustomFeeds(bundleKey)];
+}
+function addCustomFeed(bundleKey, name, url) {
+  state.customFeeds = state.customFeeds || {};
+  state.customFeeds[bundleKey] = state.customFeeds[bundleKey] || [];
+  state.customFeeds[bundleKey].push({ name, url });
+  saveState();
+  refreshBundleWidgets(bundleKey);
+}
+function removeCustomFeed(bundleKey, url) {
+  if (!state.customFeeds?.[bundleKey]) return;
+  state.customFeeds[bundleKey] = state.customFeeds[bundleKey].filter((f) => f.url !== url);
+  delete state.feedPrefs?.[url];
+  saveState();
+  refreshBundleWidgets(bundleKey);
+}
+// Re-loads every on-grid widget backed by this bundle, so a feed toggle or
+// addition shows up immediately instead of waiting for the next refresh.
+function refreshBundleWidgets(bundleKey) {
+  document.querySelectorAll('.widget').forEach((el) => {
+    const w = state.widgets.find((w) => w.id === el.dataset.id);
+    if (w && w.type === 'feed-bundle' && w.config.bundle === bundleKey) loadWidgetData(w, el);
+  });
+}
+
+// Returns [{ name, items, error }] for every enabled feed (static + custom)
+// in the bundle. Prefers the snapshot per-feed (instant, no network) and
+// only live-fetches what it doesn't cover (custom feeds, or anything not
+// yet in a fresh snapshot).
 async function fetchBundle(bundleKey) {
   const bundle = FEED_BUNDLES[bundleKey];
-  if (snapshotFresh() && SNAPSHOT.feeds?.[bundleKey]) {
-    return SNAPSHOT.feeds[bundleKey];
-  }
   // "youtube" feeds have no static url (see the YOUTUBE_CHANNELS comment
   // in shared-config.js) — they only exist via the snapshot, resolved
-  // server-side. If the snapshot is stale/missing, there's nothing to
-  // live-fetch; skip straight to a clear per-row "unavailable" instead of
-  // wasting a network round trip on a null URL.
+  // server-side, and don't support custom additions. If the snapshot is
+  // stale/missing, there's nothing to live-fetch; skip straight to a clear
+  // per-row "unavailable" instead of wasting a network round trip.
   if (bundleKey === 'youtube') {
-    return bundle.feeds.map((f) => ({ name: f.name, items: [], error: 'Refreshes with the next data snapshot' }));
+    const enabledFeeds = bundle.feeds.filter((f) => isFeedEnabled(f.url));
+    const snapRows = snapshotFresh() ? SNAPSHOT.feeds?.[bundleKey] : null;
+    if (snapRows) {
+      const byUrl = new Map(bundle.feeds.map((f, i) => [f.url, snapRows[i]]));
+      return enabledFeeds.map((f) => byUrl.get(f.url));
+    }
+    return enabledFeeds.map((f) => ({ name: f.name, items: [], error: 'Refreshes with the next data snapshot' }));
   }
-  const results = await Promise.allSettled(bundle.feeds.map((f) => fetchFeed(f.url)));
-  return bundle.feeds.map((f, i) => ({
-    name: f.name,
-    items: results[i].status === 'fulfilled' ? results[i].value : [],
-    error: results[i].status === 'rejected' ? results[i].reason.message : null,
-  }));
+
+  const snapRows = snapshotFresh() ? SNAPSHOT.feeds?.[bundleKey] : null;
+  const snapByUrl = snapRows ? new Map(bundle.feeds.map((f, i) => [f.url, snapRows[i]])) : null;
+  const enabledFeeds = getBundleFeeds(bundleKey).filter((f) => isFeedEnabled(f.url));
+
+  return Promise.all(
+    enabledFeeds.map(async (f) => {
+      const cached = snapByUrl?.get(f.url);
+      if (cached) return cached;
+      try {
+        const items = await fetchFeed(f.url);
+        return { name: f.name, items, error: null };
+      } catch (err) {
+        return { name: f.name, items: [], error: err.message };
+      }
+    })
+  );
 }
 
 function polymarketCategoryMatch(m, category) {
@@ -1539,6 +1614,16 @@ async function refreshPortfolioQuotes(body) {
 // ---------------------------------------------------------------------------
 // Ticker
 // ---------------------------------------------------------------------------
+// The track scrolls from translateX(0) to translateX(-50%) (see the
+// ticker-scroll keyframes in styles.css) — so it needs its content
+// rendered twice back-to-back. That's what makes the loop seamless: the
+// instant the first copy scrolls fully off, the second is sitting exactly
+// where the first started, so it snaps back to 0% with nothing visibly
+// different on screen, instead of going blank/waiting for a full cycle.
+function setTickerContent(track, html) {
+  track.innerHTML = html + html;
+}
+
 async function loadTicker() {
   const track = document.getElementById('tickerTrack');
   try {
@@ -1551,17 +1636,20 @@ async function loadTicker() {
       });
     }
     if (!allItems.length) {
-      track.textContent = 'Headlines unavailable right now — check back soon.';
+      setTickerContent(track, `<span>Headlines unavailable right now — check back soon.</span>`);
       return;
     }
-    track.innerHTML = allItems
-      .map(
-        (item) =>
-          `<a href="${escapeAttr(item.link)}" target="_blank" rel="noopener noreferrer"><span class="tag">${escapeHtml(item.tag)}</span>${escapeHtml(item.title)}</a>`
-      )
-      .join('');
+    setTickerContent(
+      track,
+      allItems
+        .map(
+          (item) =>
+            `<a href="${escapeAttr(item.link)}" target="_blank" rel="noopener noreferrer"><span class="tag">${escapeHtml(item.tag)}</span>${escapeHtml(item.title)}</a>`
+        )
+        .join('')
+    );
   } catch (err) {
-    track.textContent = 'Headlines unavailable right now — check back soon.';
+    setTickerContent(track, `<span>Headlines unavailable right now — check back soon.</span>`);
   }
 }
 
@@ -1583,12 +1671,12 @@ async function loadSecondaryTicker() {
       })
       .filter(Boolean);
     if (!items.length) {
-      track.textContent = 'Market data unavailable right now.';
+      setTickerContent(track, `<span>Market data unavailable right now.</span>`);
       return;
     }
-    track.innerHTML = items.map((html) => `<span style="margin-right:2.5rem;display:inline-block;">${html}</span>`).join('');
+    setTickerContent(track, items.map((html) => `<span style="margin-right:2.5rem;display:inline-block;">${html}</span>`).join(''));
   } catch (err) {
-    track.textContent = 'Market data unavailable right now.';
+    setTickerContent(track, `<span>Market data unavailable right now.</span>`);
   }
 }
 
@@ -1683,9 +1771,155 @@ document.getElementById('confirmAddWidget').addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Manage Feeds modal — per-feed enable/disable, custom feed additions, and
+// export/import of that setup as JSON. Only lists bundles that are actually
+// on the grid (nothing to manage for a bundle you haven't added).
+// ---------------------------------------------------------------------------
+function usedBundleKeys() {
+  return [...new Set(state.widgets.filter((w) => w.type === 'feed-bundle').map((w) => w.config.bundle))];
+}
+
+function renderFeedsManager() {
+  const body = document.getElementById('feedsManagerBody');
+  const bundles = usedBundleKeys();
+  if (!bundles.length) {
+    body.innerHTML = '<p class="meta">Add a News Feed Bundle widget first — its feeds will show up here to manage.</p>';
+    return;
+  }
+  body.innerHTML = bundles.map((key) => renderFeedsBundleGroup(key)).join('');
+  wireFeedsManagerEvents(body);
+}
+
+function renderFeedsBundleGroup(bundleKey) {
+  const bundle = FEED_BUNDLES[bundleKey];
+  if (!bundle) return '';
+  const customUrls = new Set(getCustomFeeds(bundleKey).map((f) => f.url));
+  const rows = getBundleFeeds(bundleKey)
+    .map(
+      (f) => `
+        <label class="feed-row">
+          <input type="checkbox" class="feed-toggle" data-bundle="${bundleKey}" data-url="${escapeAttr(f.url)}" ${isFeedEnabled(f.url) ? 'checked' : ''} />
+          <span class="feed-row-name">${escapeHtml(f.name)}</span>
+          ${customUrls.has(f.url) ? `<button class="feed-remove-btn" data-bundle="${bundleKey}" data-url="${escapeAttr(f.url)}" title="Remove custom feed">✕</button>` : ''}
+        </label>`
+    )
+    .join('');
+  return `
+    <div class="feeds-bundle-group">
+      <h4>${escapeHtml(bundle.label)}</h4>
+      <div class="feeds-list">${rows}</div>
+      <div class="add-feed-form">
+        <input type="text" class="add-feed-name" placeholder="Feed name" />
+        <input type="text" class="add-feed-url" placeholder="https://example.com/rss.xml" />
+        <button class="btn add-feed-btn" data-bundle="${bundleKey}">+ Add</button>
+      </div>
+    </div>`;
+}
+
+function wireFeedsManagerEvents(root) {
+  root.querySelectorAll('.feed-toggle').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      setFeedEnabled(cb.dataset.url, cb.checked);
+      refreshBundleWidgets(cb.dataset.bundle);
+      initSidebar();
+    });
+  });
+  root.querySelectorAll('.feed-remove-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      removeCustomFeed(btn.dataset.bundle, btn.dataset.url);
+      renderFeedsManager();
+      initSidebar();
+    });
+  });
+  root.querySelectorAll('.add-feed-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const group = btn.closest('.feeds-bundle-group');
+      const nameInput = group.querySelector('.add-feed-name');
+      const urlInput = group.querySelector('.add-feed-url');
+      const name = nameInput.value.trim();
+      const url = urlInput.value.trim();
+      if (!url || !/^https?:\/\//i.test(url)) {
+        urlInput.focus();
+        return;
+      }
+      addCustomFeed(btn.dataset.bundle, name || url, url);
+      renderFeedsManager();
+      initSidebar();
+    });
+  });
+}
+
+document.getElementById('manageFeedsBtn').addEventListener('click', () => {
+  renderFeedsManager();
+  openModal('feedsModal');
+});
+
+document.getElementById('exportFeedsBtn').addEventListener('click', () => {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    feedPrefs: state.feedPrefs || {},
+    customFeeds: state.customFeeds || {},
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'newsdash-feeds-setup.json';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('importFeedsBtn').addEventListener('click', () => {
+  document.getElementById('importFeedsFile').click();
+});
+document.getElementById('importFeedsFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (data.feedPrefs && typeof data.feedPrefs === 'object') state.feedPrefs = data.feedPrefs;
+    if (data.customFeeds && typeof data.customFeeds === 'object') state.customFeeds = data.customFeeds;
+    saveState();
+    renderFeedsManager();
+    initSidebar();
+    usedBundleKeys().forEach(refreshBundleWidgets);
+  } catch (err) {
+    alert(`Import failed: ${err.message}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Left-rail modules sidebar — filters the widget grid by category.
 // ---------------------------------------------------------------------------
 let activeCategory = 'all';
+// Session-only (not persisted) — which sidebar feed groups are expanded.
+const sidebarExpandedBundles = new Set();
+
+// One expandable row per feed-bundle widget on the grid, showing a
+// quick-toggle checkbox for each of its feeds (same feedPrefs state the
+// Manage Feeds modal uses — changes here show up there and vice versa).
+function renderSidebarFeedGroup(bundleKey) {
+  const bundle = FEED_BUNDLES[bundleKey];
+  if (!bundle) return '';
+  const expanded = sidebarExpandedBundles.has(bundleKey);
+  const rows = getBundleFeeds(bundleKey)
+    .map(
+      (f) => `
+        <label class="sidebar-feed-row">
+          <input type="checkbox" class="feed-toggle" data-bundle="${bundleKey}" data-url="${escapeAttr(f.url)}" ${isFeedEnabled(f.url) ? 'checked' : ''} />
+          <span>${escapeHtml(f.name)}</span>
+        </label>`
+    )
+    .join('');
+  return `
+    <div class="sidebar-feed-group">
+      <button class="sidebar-feed-header" data-bundle="${bundleKey}">
+        <span class="chevron">${expanded ? '▾' : '▸'}</span>${escapeHtml(bundle.label)}
+      </button>
+      <div class="sidebar-feed-list${expanded ? '' : ' hidden'}">${rows}</div>
+    </div>`;
+}
 
 function initSidebar() {
   const sidebar = document.getElementById('sidebar');
@@ -1703,7 +1937,13 @@ function initSidebar() {
       return `<button class="sidebar-btn${c === activeCategory ? ' active' : ''}" data-cat="${c}">${escapeHtml(label)}<span class="count">${count}</span></button>`;
     })
     .join('');
-  sidebar.innerHTML = toggleHtml + catsHtml;
+  const feedsHtml = usedBundleKeys()
+    .map((key) => renderSidebarFeedGroup(key))
+    .join('');
+  const feedsSectionHtml = feedsHtml
+    ? `<div class="sidebar-feeds-section"><div class="sidebar-section-label">Feeds</div>${feedsHtml}</div>`
+    : '';
+  sidebar.innerHTML = toggleHtml + catsHtml + feedsSectionHtml;
   sidebar.querySelectorAll('.sidebar-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       activeCategory = btn.dataset.cat;
@@ -1715,6 +1955,20 @@ function initSidebar() {
     state.sidebarCollapsed = !state.sidebarCollapsed;
     saveState();
     applySidebarCollapsed();
+  });
+  sidebar.querySelectorAll('.sidebar-feed-header').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.bundle;
+      if (sidebarExpandedBundles.has(key)) sidebarExpandedBundles.delete(key);
+      else sidebarExpandedBundles.add(key);
+      initSidebar();
+    });
+  });
+  sidebar.querySelectorAll('.sidebar-feed-list .feed-toggle').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      setFeedEnabled(cb.dataset.url, cb.checked);
+      refreshBundleWidgets(cb.dataset.bundle);
+    });
   });
 }
 
@@ -1925,12 +2179,26 @@ applySidebarCollapsed();
 // ---------------------------------------------------------------------------
 // Theme
 // ---------------------------------------------------------------------------
+// Three themes cycle in order: Light -> Dusk (the original warm dark
+// theme, kept as-is) -> Midnight (a cooler soothing dark-blue theme) -> back
+// to Light.
+const THEME_CYCLE = ['light', 'dark', 'midnight'];
+const THEME_META = {
+  light: { icon: '☀️', label: 'Light' },
+  dark: { icon: '🌙', label: 'Dusk' },
+  midnight: { icon: '🌌', label: 'Midnight' },
+};
 function applyTheme() {
+  if (!THEME_CYCLE.includes(state.theme)) state.theme = 'dark';
   document.documentElement.setAttribute('data-theme', state.theme);
-  document.getElementById('themeToggle').textContent = state.theme === 'dark' ? '🌙' : '☀️';
+  const meta = THEME_META[state.theme];
+  const btn = document.getElementById('themeToggle');
+  btn.textContent = meta.icon;
+  btn.title = `Theme: ${meta.label} (click to change)`;
 }
 document.getElementById('themeToggle').addEventListener('click', () => {
-  state.theme = state.theme === 'dark' ? 'light' : 'dark';
+  const next = THEME_CYCLE[(THEME_CYCLE.indexOf(state.theme) + 1) % THEME_CYCLE.length];
+  state.theme = next;
   saveState();
   applyTheme();
 });
