@@ -19,10 +19,19 @@ import {
   POLYMARKET_CATEGORY_KEYWORDS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.6.0';
+} from './shared-config.js?v=0.6.1';
 
-const APP_VERSION = '0.6.0';
+const APP_VERSION = '0.6.1';
 const PATCH_NOTES = [
+  {
+    version: '0.6.1',
+    date: '2026-08-24',
+    notes: [
+      'Fixed the YouTube Channels widget showing National Geographic five times instead of all five channels: every channel\'s placeholder entry shared the literal url `null`, so the new per-feed lookup (added in 0.6.0) collapsed them all onto the last one. Each channel now gets its own stable id.',
+      'Added Trending/Live quick-links to the YouTube widget. YouTube has no free/keyless feed for either (that needs their paid/quota\'d Data API), so — same approach as the Global Disaster Map\'s outbound link — these open YouTube\'s own trending/live pages in a new tab rather than faking embedded data.',
+      'Fixed scroll lock (🔒) on touch devices: swiping up from inside a widget did nothing instead of scrolling the page, because the widget body\'s `touch-action: none` blocks the browser from handing the gesture off to anything — including the page. Changed to `pan-y`, which still blocks the widget\'s own scrolling but lets the swipe reach the page as intended.',
+    ],
+  },
   {
     version: '0.6.0',
     date: '2026-08-24',
@@ -531,22 +540,15 @@ function refreshBundleWidgets(bundleKey) {
 // yet in a fresh snapshot).
 async function fetchBundle(bundleKey) {
   const bundle = FEED_BUNDLES[bundleKey];
-  // "youtube" feeds have no static url (see the YOUTUBE_CHANNELS comment
-  // in shared-config.js) — they only exist via the snapshot, resolved
-  // server-side, and don't support custom additions. If the snapshot is
-  // stale/missing, there's nothing to live-fetch; skip straight to a clear
-  // per-row "unavailable" instead of wasting a network round trip.
-  if (bundleKey === 'youtube') {
-    const enabledFeeds = bundle.feeds.filter((f) => isFeedEnabled(f.url));
-    const snapRows = snapshotFresh() ? SNAPSHOT.feeds?.[bundleKey] : null;
-    if (snapRows) {
-      const byUrl = new Map(bundle.feeds.map((f, i) => [f.url, snapRows[i]]));
-      return enabledFeeds.map((f) => byUrl.get(f.url));
-    }
-    return enabledFeeds.map((f) => ({ name: f.name, items: [], error: 'Refreshes with the next data snapshot' }));
-  }
-
   const snapRows = snapshotFresh() ? SNAPSHOT.feeds?.[bundleKey] : null;
+  // Static feeds keyed by url so the snapshot's per-row array (built in
+  // the same static-feed order) can be looked up by identity rather than
+  // position — position alone would misalign as soon as a feed gets
+  // disabled/reordered/added. "youtube" static entries use a synthetic
+  // `youtube:<handle>` url (see shared-config.js) since they have no real
+  // per-feed RSS url of their own — they're resolved server-side and only
+  // exist via the snapshot; a live "cache miss" there means there's
+  // nothing to fetch, not a live-fetch opportunity.
   const snapByUrl = snapRows ? new Map(bundle.feeds.map((f, i) => [f.url, snapRows[i]])) : null;
   const enabledFeeds = getBundleFeeds(bundleKey).filter((f) => isFeedEnabled(f.url));
 
@@ -554,6 +556,9 @@ async function fetchBundle(bundleKey) {
     enabledFeeds.map(async (f) => {
       const cached = snapByUrl?.get(f.url);
       if (cached) return cached;
+      if (bundleKey === 'youtube' && f.url.startsWith('youtube:')) {
+        return { name: f.name, items: [], error: 'Refreshes with the next data snapshot' };
+      }
       try {
         const items = await fetchFeed(f.url);
         return { name: f.name, items, error: null };
@@ -1150,6 +1155,20 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
   if (widget.type === 'feed-bundle') {
     const results = await fetchBundle(widget.config.bundle);
     body.innerHTML = '';
+    // YouTube has no free/keyless API or RSS feed for "trending" or "live"
+    // (those need the paid/quota'd Data API) — rather than fake it with a
+    // scraped approximation, link straight out to YouTube's own pages for
+    // them, same as the Global Disaster Map widget links out to RSOE EDIS
+    // where no accessible feed exists.
+    if (widget.config.bundle === 'youtube') {
+      body.insertAdjacentHTML(
+        'beforeend',
+        `<div class="outbound-row">
+          <a class="btn outbound-btn" href="https://www.youtube.com/feed/trending" target="_blank" rel="noopener noreferrer">🔥 Trending ↗</a>
+          <a class="btn outbound-btn" href="https://www.youtube.com/live" target="_blank" rel="noopener noreferrer">🔴 Live now ↗</a>
+        </div>`
+      );
+    }
     let any = false;
     results.forEach((r) => {
       const group = document.createElement('div');

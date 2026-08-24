@@ -544,7 +544,14 @@ body.sidebar-collapsed .sidebar-toggle-btn { align-self: center; }
 
 /* Scroll lock: freeze every widget's internal scroll so a touch drag always
    moves the page instead of a widget list stealing it. */
-body.widgets-locked .widget-body { overflow: hidden; touch-action: none; }
+/* touch-action: none (previous value) disables ALL default touch handling
+   for a touch that starts here — it does NOT hand the gesture off to a
+   scrollable ancestor, so a swipe starting inside a locked widget just did
+   nothing instead of scrolling the page. pan-y still blocks the widget's
+   own scroll (it has no scrollable content while overflow is hidden) but
+   lets the browser carry a vertical swipe up to the page, which is the
+   whole point of locking. */
+body.widgets-locked .widget-body { overflow: hidden; touch-action: pan-y; }
 
 /* Sidebar collapse (desktop) — collapses to a slim rail holding just the
    toggle button, rather than disappearing entirely (which would strand it). */

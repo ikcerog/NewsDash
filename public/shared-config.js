@@ -288,7 +288,14 @@ export const FEED_BUNDLES = {
   // (this bundle relies on the snapshot; it refreshes every ~20 minutes).
   youtube: {
     label: 'YouTube Channels',
-    feeds: YOUTUBE_CHANNELS.map((c) => ({ name: c.name, url: null })),
+    // These channels have no real per-feed URL — YouTube's RSS only exists
+    // per numeric channel ID (resolved server-side in fetch-snapshot.mjs),
+    // not per @handle. A synthetic-but-stable "url" (rather than null for
+    // every entry) is still needed here so each channel has its own unique
+    // key for the enable/disable feed toggles and the snapshot lookup —
+    // with every entry sharing the literal value `null`, they were
+    // indistinguishable and collapsed onto a single (the last) channel.
+    feeds: YOUTUBE_CHANNELS.map((c) => ({ name: c.name, url: `youtube:${c.handle}` })),
   },
 };
 
