@@ -8,7 +8,20 @@ name: Fetch Data Snapshot
 
 on:
   schedule:
-    - cron: '*/20 * * * *'
+    # Cron is UTC and doesn't shift for DST; times below assume US Eastern
+    # (~UTC-4 in summer, ~UTC-5 in winter), so actual local time drifts by
+    # an hour across the DST boundary — an accepted, simple tradeoff rather
+    # than a timezone-aware schedule.
+    #
+    # Weekdays: every 30 min, all day, so news/markets stay fresh during
+    # the week. Offset a few minutes past the hour/half-hour (:07/:37
+    # instead of :00/:30) since GitHub Actions cron jobs queued right on
+    # the hour are the ones most likely to get delayed under load.
+    - cron: '7,37 * * * 1-5'
+    # Weekends: 3 fixed pulls (~9am/noon/6pm ET) instead of every 30 min —
+    # markets are closed and news is slower, so this stays "reasonably
+    # fresh" without burning runs nobody's looking at.
+    - cron: '17 13,16,22 * * 0,6'
   workflow_dispatch:
 
 permissions:

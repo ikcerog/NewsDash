@@ -1,11 +1,12 @@
 // NewsDash — client-side app.
 // Runs entirely static (GitHub Pages friendly). Primary data source is a
-// pre-fetched JSON snapshot (data/snapshot.json) built server-side every
-// ~20 minutes by a GitHub Action (scripts/fetch-snapshot.mjs) — no CORS
-// proxy involved, so it's fast and reliable. Anything not covered by the
-// snapshot (a custom feed URL, an arbitrary portfolio symbol, a custom
-// Polymarket search) still fetches live from the browser, routed through a
-// free CORS proxy chain as a fallback.
+// pre-fetched JSON snapshot (data/snapshot.json) built server-side by a
+// GitHub Action (scripts/fetch-snapshot.mjs) — every 30 min on weekdays,
+// ~3x/day on weekends (see fetch-snapshot.yml) — no CORS proxy involved,
+// so it's fast and reliable. Anything not covered by the snapshot (a
+// custom feed URL, an arbitrary portfolio symbol, a custom Polymarket
+// search) still fetches live from the browser, routed through a free CORS
+// proxy chain as a fallback.
 import {
   MARKET_GROUPS,
   FEED_BUNDLES,
@@ -18,10 +19,21 @@ import {
   POLYMARKET_CATEGORY_KEYWORDS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.5.1';
+} from './shared-config.js?v=0.5.2';
 
-const APP_VERSION = '0.5.1';
+const APP_VERSION = '0.5.2';
 const PATCH_NOTES = [
+  {
+    version: '0.5.2',
+    date: '2026-08-24',
+    notes: [
+      'Fixed Pages deploys silently not picking up new data snapshots for hours: the snapshot job\'s auto-commits use the default GITHUB_TOKEN, which GitHub excludes from triggering other workflows\' `push` events, so the deploy workflow now also triggers on the snapshot workflow finishing.',
+      'The snapshot script now carries forward last-known-good data (per feed, per quote symbol) when a fetch fails this cycle instead of blanking it out, so a single flaky proxy/source no longer wipes a widget that had good data moments ago.',
+      'Snapshot cron: every 30 min on weekdays, 3x/day (~9am/noon/6pm ET) on weekends, offset a few minutes past the hour to avoid GitHub\'s top-of-hour scheduling congestion.',
+      'Raised the client\'s snapshot-freshness window to match the new weekend cadence, so the reliable same-origin snapshot is preferred over the flaky live CORS-proxy chain far more often.',
+      'Wikimedia trending: retry a day further back when "yesterday" isn\'t published yet, instead of failing outright.',
+    ],
+  },
   {
     version: '0.5.1',
     date: '2026-08-22',
@@ -326,9 +338,16 @@ async function loadSnapshot() {
   }
 }
 
+// The snapshot cron now runs every 30 min on weekdays but only ~3x/day on
+// weekends (see fetch-snapshot.yml), leaving gaps of up to ~15 hours — and
+// the snapshot script now carries forward last-known-good data per item on
+// a failed fetch, so an old generatedAt doesn't mean stale content
+// everywhere. A same-origin snapshot a few hours old is still far more
+// reliable than the live CORS-proxy chain, so prefer it generously and only
+// fall back to live fetches when the snapshot is genuinely missing/ancient.
 function snapshotFresh() {
   if (!SNAPSHOT || !SNAPSHOT.generatedAt) return false;
-  return Date.now() - new Date(SNAPSHOT.generatedAt).getTime() < 2 * 60 * 60 * 1000;
+  return Date.now() - new Date(SNAPSHOT.generatedAt).getTime() < 20 * 60 * 60 * 1000;
 }
 
 // ---------------------------------------------------------------------------
@@ -668,25 +687,34 @@ function sparklineSVG(values, cls) {
 async function fetchWikiTrending() {
   if (snapshotFresh() && SNAPSHOT.wikiTrending?.length) return SNAPSHOT.wikiTrending;
   return withCache('wiki-trending', 30 * 60 * 1000, async () => {
-    // Top-articles data for "today" usually isn't published yet; use yesterday.
-    const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const y = d.getUTCFullYear();
-    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(d.getUTCDate()).padStart(2, '0');
-    const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${y}/${m}/${day}`;
-    const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
-    if (!res.ok) throw new Error(`Wikimedia ${res.status}`);
-    const data = await res.json();
-    const articles = data.items?.[0]?.articles || [];
-    const skip = new Set(['Main_Page', 'Special:Search', 'Special:SpecialPages']);
-    return articles
-      .filter((a) => !skip.has(a.article) && !a.article.startsWith('Special:'))
-      .slice(0, 15)
-      .map((a) => ({
-        title: a.article.replace(/_/g, ' '),
-        views: a.views,
-        link: `https://en.wikipedia.org/wiki/${a.article}`,
-      }));
+    // Top-articles data can lag more than a day behind; try yesterday, then
+    // the day before that.
+    let lastErr;
+    for (const daysAgo of [1, 2]) {
+      const d = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
+      const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${y}/${m}/${day}`;
+      try {
+        const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
+        if (!res.ok) throw new Error(`Wikimedia ${res.status}`);
+        const data = await res.json();
+        const articles = data.items?.[0]?.articles || [];
+        const skip = new Set(['Main_Page', 'Special:Search', 'Special:SpecialPages']);
+        return articles
+          .filter((a) => !skip.has(a.article) && !a.article.startsWith('Special:'))
+          .slice(0, 15)
+          .map((a) => ({
+            title: a.article.replace(/_/g, ' '),
+            views: a.views,
+            link: `https://en.wikipedia.org/wiki/${a.article}`,
+          }));
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr;
   });
 }
 

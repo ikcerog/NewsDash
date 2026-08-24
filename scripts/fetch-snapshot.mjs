@@ -6,7 +6,7 @@
 // instant) and only falls back to live client-side fetches for things the
 // snapshot can't anticipate (custom feed URLs, arbitrary portfolio symbols).
 import Parser from 'rss-parser';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FEED_BUNDLES, MARKET_GROUPS, DEFAULT_PORTFOLIO, STATUS_SERVICES, YOUTUBE_CHANNELS, normalizeStooqSymbol, toYahooSymbol } from '../public/shared-config.js';
@@ -295,21 +295,31 @@ async function fetchSparkline(rawSymbol) {
   }
 }
 
+// Wikimedia's top-pageviews data can lag more than a day behind, so
+// "yesterday" sometimes 404s — fall back to the day before that.
 async function fetchWikiTrending() {
-  const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${y}/${m}/${day}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-  if (!res.ok) throw new Error(`Wikimedia ${res.status}`);
-  const data = await res.json();
-  const articles = data.items?.[0]?.articles || [];
-  const skip = new Set(['Main_Page', 'Special:Search', 'Special:SpecialPages']);
-  return articles
-    .filter((a) => !skip.has(a.article) && !a.article.startsWith('Special:'))
-    .slice(0, 15)
-    .map((a) => ({ title: a.article.replace(/_/g, ' '), views: a.views, link: `https://en.wikipedia.org/wiki/${a.article}` }));
+  let lastErr;
+  for (const daysAgo of [1, 2]) {
+    const d = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${y}/${m}/${day}`;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) throw new Error(`Wikimedia ${res.status}`);
+      const data = await res.json();
+      const articles = data.items?.[0]?.articles || [];
+      const skip = new Set(['Main_Page', 'Special:Search', 'Special:SpecialPages']);
+      return articles
+        .filter((a) => !skip.has(a.article) && !a.article.startsWith('Special:'))
+        .slice(0, 15)
+        .map((a) => ({ title: a.article.replace(/_/g, ' '), views: a.views, link: `https://en.wikipedia.org/wiki/${a.article}` }));
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
 }
 
 async function fetchTreasuryYields() {
@@ -407,7 +417,62 @@ async function fetchGlobalDisasters() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Carry-forward: a single flaky cycle (a proxy hiccup, a source
+// rate-limiting the runner's IP, a transient timeout) shouldn't blank out a
+// widget that had perfectly good data 20-30 minutes ago. Load the snapshot
+// this run is about to overwrite and use it to backfill anything this
+// cycle's fetches came back empty for. The next successful cycle for that
+// item naturally replaces the carried-forward value, so staleness never
+// compounds past a couple of cycles in practice.
+// ---------------------------------------------------------------------------
+async function loadPreviousSnapshot() {
+  try {
+    return JSON.parse(await readFile(OUT_PATH, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function nonEmpty(v) {
+  if (v == null) return false;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === 'object') return Object.keys(v).length > 0;
+  return Boolean(v);
+}
+
+function carryForward(prev, next) {
+  return nonEmpty(next) ? next : prev ?? next;
+}
+
+// Per-feed (not just per-bundle) so one broken feed in an otherwise-fine
+// bundle still gets its last-known items instead of the whole bundle being
+// judged fresh-or-stale as a unit.
+function mergeFeedBundles(prevFeeds, newFeeds) {
+  const out = {};
+  for (const [key, rows] of Object.entries(newFeeds)) {
+    const prevRows = prevFeeds?.[key] || [];
+    out[key] = rows.map((row, i) => {
+      if (row.items?.length) return row;
+      const prevRow = prevRows.find((r) => r.name === row.name) || prevRows[i];
+      return prevRow?.items?.length ? { ...row, items: prevRow.items, error: null } : row;
+    });
+  }
+  return out;
+}
+
+// Per-symbol, so a quote endpoint that only partially fails doesn't lose
+// the symbols it did get.
+function mergeKeyedMap(prev, next, isGood) {
+  const out = { ...(prev || {}) };
+  for (const [k, v] of Object.entries(next || {})) {
+    if (isGood(v)) out[k] = v;
+  }
+  return out;
+}
+
 async function main() {
+  const previous = await loadPreviousSnapshot();
   const allMarketSymbols = Object.values(MARKET_GROUPS).flatMap((g) => g.symbols.map((s) => s.sym));
   const sparklineSymbols = [...new Set([...allMarketSymbols, ...DEFAULT_PORTFOLIO])];
 
@@ -450,18 +515,22 @@ async function main() {
     console.log(`quotes: derived ${Object.keys(finalQuotes).length} from sparkline history (direct quote fetch returned nothing)`);
   }
 
+  const mergedFeeds = mergeFeedBundles(previous?.feeds, feedsWithYoutube);
+  const mergedQuotes = mergeKeyedMap(previous?.quotes, finalQuotes, (v) => v && !isNaN(v.close));
+  const mergedSparklines = mergeKeyedMap(previous?.sparklines, sparklines, (v) => Array.isArray(v) && v.length > 0);
+
   const snapshot = {
     generatedAt: new Date().toISOString(),
-    feeds: feedsWithYoutube,
-    polymarket: polymarket || [],
-    quotes: finalQuotes,
-    sparklines,
-    wikiTrending: wikiTrending || [],
-    treasury: treasury || { date: null, rates: [] },
-    earthquakes: earthquakes || [],
-    nationalAlerts: nationalAlerts || [],
-    serviceStatus: serviceStatus || [],
-    globalDisasters: globalDisasters || [],
+    feeds: mergedFeeds,
+    polymarket: carryForward(previous?.polymarket, polymarket || []),
+    quotes: mergedQuotes,
+    sparklines: mergedSparklines,
+    wikiTrending: carryForward(previous?.wikiTrending, wikiTrending || []),
+    treasury: carryForward(previous?.treasury, treasury?.rates?.length ? treasury : null) || { date: null, rates: [] },
+    earthquakes: carryForward(previous?.earthquakes, earthquakes || []),
+    nationalAlerts: carryForward(previous?.nationalAlerts, nationalAlerts || []),
+    serviceStatus: carryForward(previous?.serviceStatus, serviceStatus || []),
+    globalDisasters: carryForward(previous?.globalDisasters, globalDisasters || []),
   };
 
   await mkdir(path.dirname(OUT_PATH), { recursive: true });
