@@ -19,10 +19,17 @@ import {
   POLYMARKET_CATEGORY_KEYWORDS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.5.2';
+} from './shared-config.js?v=0.5.3';
 
-const APP_VERSION = '0.5.2';
+const APP_VERSION = '0.5.3';
 const PATCH_NOTES = [
+  {
+    version: '0.5.3',
+    date: '2026-08-24',
+    notes: [
+      'Fixed the Leaflet map widgets (Significant Earthquakes, US Weather Alerts Map) rendering above everything else — header, modals, floating buttons — while scrolling. The map container had no stacking context of its own, so Leaflet\'s internal z-indexes (up to 1000, for zoom controls etc.) escaped it.',
+    ],
+  },
   {
     version: '0.5.2',
     date: '2026-08-24',

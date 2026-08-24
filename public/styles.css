@@ -394,6 +394,12 @@ body.sidebar-collapsed .sidebar-toggle-btn { align-self: center; }
 .market-item .stats { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem; }
 
 .widget-map {
+  /* Leaflet's own children (zoom controls, popups, tile/marker panes) use
+     z-index values up to 1000. Without a positioned, z-indexed container of
+     its own here, those escape this stacking context on scroll and render
+     above the sticky header, modals, and the floating scroll/lock buttons. */
+  position: relative;
+  z-index: 0;
   width: 100%;
   height: 180px;
   border-radius: 8px;
