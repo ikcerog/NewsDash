@@ -20,10 +20,18 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.7.1';
+} from './shared-config.js?v=0.7.2';
 
-const APP_VERSION = '0.7.1';
+const APP_VERSION = '0.7.2';
 const PATCH_NOTES = [
+  {
+    version: '0.7.2',
+    date: '2026-08-25',
+    notes: [
+      'Fixed dragging: any widget positioned right after a half-height pair instantly jumped to a different spot the moment you started dragging *anything* (not even that widget) — enough to derail the browser mid-drag and make it look like the grid just "refreshed" without ever letting you move the item. Cause: starting a drag flattened every half-pair on the page back into full-height widgets, reflowing everything after it. Now only the widget actually being dragged (if it\'s itself in a pair) gets pulled out — every other pair stays exactly where it was.',
+      'That same reflow was also the "can\'t drag things right" issue — anything downstream of a pair had its position yanked out from under the drag before you could place it anywhere.',
+    ],
+  },
   {
     version: '0.7.1',
     date: '2026-08-25',
@@ -1158,14 +1166,22 @@ function renderWidget(widget, index = 0) {
   });
 
   el.addEventListener('dragstart', () => {
-    // Flatten any half-pairs back into direct grid children before the drag
-    // starts, so getDragAfterElement/insertBefore always operate on a flat
-    // sibling list — pairing is re-derived from the new order on drop
-    // (persistOrder -> renderGrid), so nothing is lost by unpairing here.
-    grid.querySelectorAll('.widget-half-pair').forEach((wrap) => {
-      while (wrap.firstElementChild) grid.insertBefore(wrap.firstElementChild, wrap);
-      wrap.remove();
-    });
+    // If this widget is currently half-paired, pull just it out of the
+    // wrapper (leaving its partner, if any, as a solo item in the same
+    // spot) so getDragAfterElement/insertBefore can treat it as a normal
+    // top-level grid child. Previously this flattened *every* pair on the
+    // page unconditionally, which reflowed the whole grid the instant any
+    // drag started — most visibly, whatever widget followed a pair would
+    // jump to a completely different position before the user had even
+    // moved the mouse, which was enough to derail the browser's native
+    // drag gesture entirely (it'd fire dragend almost immediately). Only
+    // touching the dragged widget's own pair (if it's in one) means every
+    // *other* pair stays put and nothing else on the grid moves.
+    const wrap = el.closest('.widget-half-pair');
+    if (wrap) {
+      grid.insertBefore(el, wrap);
+      if (!wrap.firstElementChild) wrap.remove();
+    }
     el.classList.add('dragging');
   });
   el.addEventListener('dragend', () => {
@@ -1203,7 +1219,13 @@ grid.addEventListener('dragover', (e) => {
 // resolved to whichever card happened to come first in DOM order (the
 // leftmost column), regardless of the cursor's actual x position.
 function getDragAfterElement(container, y, x) {
-  const els = [...container.querySelectorAll('.widget:not(.dragging)')];
+  // Top-level children only (a mix of lone .widget elements and untouched
+  // .widget-half-pair wrappers) — not a deep .widget query. A pair wrapper
+  // is one grid cell, so it needs to be hit-tested as one unit; querying
+  // into it would offer its two (half-height, oddly-positioned) children
+  // up as separate candidates and skew the nearest-neighbor math for
+  // anything near it.
+  const els = [...container.children].filter((el) => !el.classList.contains('dragging'));
   let nearest = null;
   let nearestDist = Infinity;
   for (const child of els) {
