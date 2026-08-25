@@ -17,12 +17,27 @@ import {
   CATEGORY_LABELS,
   STATUS_SERVICES,
   POLYMARKET_CATEGORY_KEYWORDS,
+  YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.6.1';
+} from './shared-config.js?v=0.7.0';
 
-const APP_VERSION = '0.6.1';
+const APP_VERSION = '0.7.0';
 const PATCH_NOTES = [
+  {
+    version: '0.7.0',
+    date: '2026-08-25',
+    notes: [
+      'Fixed drag-and-drop reordering: it only compared vertical position, so every card in a row tied on that and it always snapped to the leftmost column regardless of where you dropped. Now uses actual 2D nearest-card distance.',
+      'New "half-height" pairing (⬍ button, opposite of the ⬌ wide toggle): two adjacent half-height widgets now share one grid cell, stacked top/bottom, instead of each sitting short with wasted space below. Applied by default to Local Weather Alerts, Trending Now, Service Status, and Big Movers — drag two of them next to each other to pair them (existing saved layouts need the button clicked once since this can\'t be applied retroactively to a customized layout).',
+      'CrypTrack now stretches to match the row\'s height like every other widget, instead of sitting at its iframe\'s fixed 280px.',
+      'Trending Topics: stopped surfacing publication/channel names (wsj, fox, nat, geo, detroit, etc.) — Google News-style " - Source" suffixes are now stripped, and a stopword list is built from the feed/channel names themselves so it stays correct as sources change. Also temporarily excluding "Disney".',
+      'Fixed Stock Portfolio silently failing to show a newly-added symbol when the live quote fetch failed for the whole batch (e.g. right after a proxy outage) — every symbol you\'ve added now always gets a row (as "n/a" if its price isn\'t available yet) instead of the table going blank.',
+      'Stock Portfolio: click a column header (Symbol/Price/Chg) to sort by it; click again to reverse.',
+      'New auto-refresh setting (header dropdown): Off/30s/1min/5min/1hr. Re-loads every widget\'s data in place — no page reload.',
+      'The load-time tooltip (click the ⏱ chip) now also shows how long it took for all widgets\' initial data to finish loading, separate from the browser\'s own page-load timing, plus how many (if any) failed.',
+    ],
+  },
   {
     version: '0.6.1',
     date: '2026-08-24',
@@ -305,6 +320,7 @@ function defaultState() {
     // want to read at — this is what 3 clicks of the "slow down" (−)
     // button used to get you to from that default.
     tickerSpeed: 105,
+    autoRefreshMs: 0, // off by default — opt-in via the header dropdown
     localZip: null,
     portfolio: [...DEFAULT_PORTFOLIO],
     widgets: [
@@ -317,14 +333,14 @@ function defaultState() {
       { id: uid(), type: 'polymarket', config: { category: '' } },
       { id: uid(), type: 'feed-bundle', config: { bundle: 'deepwire' } },
       { id: uid(), type: 'feed-bundle', config: { bundle: 'gaming' } },
-      { id: uid(), type: 'feed-bundle', config: { bundle: 'trending' } },
+      { id: uid(), type: 'feed-bundle', config: { bundle: 'trending' }, half: true },
       { id: uid(), type: 'wiki-trending', config: {} },
       { id: uid(), type: 'bonds', config: {} },
       { id: uid(), type: 'earthquakes', config: {} },
-      { id: uid(), type: 'local-alerts', config: {} },
+      { id: uid(), type: 'local-alerts', config: {}, half: true },
       { id: uid(), type: 'us-alerts-map', config: {} },
       { id: uid(), type: 'disaster-map', config: {} },
-      { id: uid(), type: 'service-status', config: {} },
+      { id: uid(), type: 'service-status', config: {}, half: true },
       { id: uid(), type: 'feed-bundle', config: { bundle: 'webdev' } },
       { id: uid(), type: 'feed-bundle', config: { bundle: 'security' } },
       { id: uid(), type: 'feed-bundle', config: { bundle: 'ainews' } },
@@ -333,7 +349,7 @@ function defaultState() {
       { id: uid(), type: 'feed-bundle', config: { bundle: 'science' } },
       { id: uid(), type: 'feed-bundle', config: { bundle: 'youtube' } },
       { id: uid(), type: 'cryptrack', config: {} },
-      { id: uid(), type: 'movers', config: {} },
+      { id: uid(), type: 'movers', config: {}, half: true },
     ],
   };
 }
@@ -1061,9 +1077,29 @@ function getWidgetCategory(widget) {
   return WIDGET_CATEGORIES[widget.type] || 'other';
 }
 
+// Two adjacent "half" widgets (neither also "wide") share one grid cell,
+// stacked top/bottom — the opposite of "wide" doubling a widget's column
+// span. Pairing is derived fresh from state.widgets order on every render
+// (see renderGrid) rather than stored explicitly, so dragging two compact
+// widgets next to each other is all it takes to pair them.
 function renderGrid() {
   grid.innerHTML = '';
-  state.widgets.forEach((widget, i) => grid.appendChild(renderWidget(widget, i)));
+  const widgets = state.widgets;
+  let renderIndex = 0;
+  for (let i = 0; i < widgets.length; i++) {
+    const w = widgets[i];
+    const next = widgets[i + 1];
+    if (w.half && !w.wide && next && next.half && !next.wide) {
+      const pair = document.createElement('div');
+      pair.className = 'widget-half-pair';
+      pair.appendChild(renderWidget(w, renderIndex++));
+      pair.appendChild(renderWidget(next, renderIndex++));
+      grid.appendChild(pair);
+      i++; // consumed two widgets this iteration
+    } else {
+      grid.appendChild(renderWidget(w, renderIndex++));
+    }
+  }
   initSidebar();
   applyCategoryFilter();
 }
@@ -1073,6 +1109,7 @@ function renderWidget(widget, index = 0) {
   el.className = 'widget';
   el.draggable = true;
   el.dataset.id = widget.id;
+  el.dataset.type = widget.type;
   el.dataset.category = getWidgetCategory(widget);
 
   if (widget.wide) el.classList.add('wide');
@@ -1081,6 +1118,7 @@ function renderWidget(widget, index = 0) {
     <div class="widget-header">
       <h3>${widgetIcon(widget)} ${escapeHtml(widgetTitle(widget))}</h3>
       <div class="controls">
+        <button class="half-btn${widget.half ? ' active' : ''}" title="Toggle half-height (pairs with an adjacent half-height widget)">⬍</button>
         <button class="wide-btn${widget.wide ? ' active' : ''}" title="Toggle double-width">⬌</button>
         <button class="focus-btn" title="Focus — view all">⤢</button>
         <button class="refresh-btn" title="Refresh">⟳</button>
@@ -1097,17 +1135,36 @@ function renderWidget(widget, index = 0) {
   });
   el.querySelector('.refresh-btn').addEventListener('click', () => loadWidgetData(widget, el));
   el.querySelector('.focus-btn').addEventListener('click', () => openFocusModal(widget));
-  el.querySelector('.wide-btn').addEventListener('click', (e) => {
+  // Both toggles re-render the whole grid rather than just flipping a class
+  // locally — pairing/unpairing needs the wrapper structure recomputed, and
+  // a widget that's both "wide" and "half" doesn't pair (see renderGrid), so
+  // toggling either one can change how this widget (and its neighbor) sit.
+  el.querySelector('.wide-btn').addEventListener('click', () => {
     widget.wide = !widget.wide;
-    el.classList.toggle('wide', widget.wide);
-    e.currentTarget.classList.toggle('active', widget.wide);
     saveState();
+    renderGrid();
+  });
+  el.querySelector('.half-btn').addEventListener('click', () => {
+    widget.half = !widget.half;
+    saveState();
+    renderGrid();
   });
 
-  el.addEventListener('dragstart', () => el.classList.add('dragging'));
+  el.addEventListener('dragstart', () => {
+    // Flatten any half-pairs back into direct grid children before the drag
+    // starts, so getDragAfterElement/insertBefore always operate on a flat
+    // sibling list — pairing is re-derived from the new order on drop
+    // (persistOrder -> renderGrid), so nothing is lost by unpairing here.
+    grid.querySelectorAll('.widget-half-pair').forEach((wrap) => {
+      while (wrap.firstElementChild) grid.insertBefore(wrap.firstElementChild, wrap);
+      wrap.remove();
+    });
+    el.classList.add('dragging');
+  });
   el.addEventListener('dragend', () => {
     el.classList.remove('dragging');
     persistOrder();
+    renderGrid();
   });
 
   // Stagger initial loads so a big default grid doesn't fire dozens of
@@ -1132,17 +1189,30 @@ grid.addEventListener('dragover', (e) => {
   else grid.insertBefore(dragging, after);
 });
 
+// Finds the nearest widget to the cursor by straight-line (2D) distance
+// between centers, then inserts before/after it depending on which side of
+// its center the cursor is on. The previous version only compared y-offset,
+// which is identical for every card in the same grid row — ties always
+// resolved to whichever card happened to come first in DOM order (the
+// leftmost column), regardless of the cursor's actual x position.
 function getDragAfterElement(container, y, x) {
   const els = [...container.querySelectorAll('.widget:not(.dragging)')];
-  return els.reduce(
-    (closest, child) => {
-      const box = child.getBoundingClientRect();
-      const offset = y - box.top - box.height / 2;
-      if (offset < 0 && offset > closest.offset) return { offset, element: child };
-      return closest;
-    },
-    { offset: Number.NEGATIVE_INFINITY, element: null }
-  ).element;
+  let nearest = null;
+  let nearestDist = Infinity;
+  for (const child of els) {
+    const box = child.getBoundingClientRect();
+    const dx = x - (box.left + box.width / 2);
+    const dy = y - (box.top + box.height / 2);
+    const dist = dx * dx + dy * dy;
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearest = child;
+    }
+  }
+  if (!nearest) return null;
+  const box = nearest.getBoundingClientRect();
+  const isLeftHalf = x < box.left + box.width / 2;
+  return isLeftHalf ? nearest : nearest.nextElementSibling;
 }
 
 // Renders a widget's content into `body`. `focus: true` (used by the Focus
@@ -1375,9 +1445,24 @@ async function loadWidgetData(widget, el) {
   const body = el.querySelector('.widget-body');
   try {
     await renderWidgetInto(widget, body, { focus: false });
+    trackInitialWidgetLoad(widget.id, true);
   } catch (err) {
     body.innerHTML = `<div class="error-state">Failed to load: ${escapeHtml(err.message)}</div>`;
+    trackInitialWidgetLoad(widget.id, false);
   }
+}
+
+// Re-loads every widget currently on the grid (plus both tickers and
+// trending topics), in place — no page reload. Used by both the manual
+// refresh buttons (indirectly, via loadWidgetData) and auto-refresh below.
+function refreshAllWidgets() {
+  document.querySelectorAll('.widget').forEach((el) => {
+    const w = state.widgets.find((w) => w.id === el.dataset.id);
+    if (w) loadWidgetData(w, el);
+  });
+  loadTicker();
+  loadSecondaryTicker();
+  updateTrendingTopics();
 }
 
 async function openFocusModal(widget) {
@@ -1556,7 +1641,12 @@ function renderPortfolioShell() {
       <button class="btn btn-primary" id="portfolioAddBtn">Add</button>
     </div>
     <table class="portfolio-table">
-      <thead><tr><th>Symbol</th><th>Price</th><th>Chg</th><th>25d</th><th></th></tr></thead>
+      <thead><tr>
+        <th data-sort="symbol" class="sortable">Symbol</th>
+        <th data-sort="price" class="sortable">Price</th>
+        <th data-sort="chg" class="sortable">Chg</th>
+        <th>25d</th><th></th>
+      </tr></thead>
       <tbody id="portfolioBody"><tr><td colspan="5" class="loading-state">Loading…</td></tr></tbody>
     </table>
   `;
@@ -1579,6 +1669,26 @@ function wirePortfolio(body) {
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') add();
   });
+  body.querySelectorAll('.portfolio-table th[data-sort]').forEach((th) => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      if (portfolioSort.key === key) portfolioSort.dir *= -1;
+      else portfolioSort = { key, dir: 1 };
+      refreshPortfolioQuotes(body);
+    });
+  });
+}
+
+// Shared across any Portfolio widget instances (there's normally just one).
+let portfolioSort = { key: null, dir: 1 };
+const PORTFOLIO_SORT_LABELS = { symbol: 'Symbol', price: 'Price', chg: 'Chg' };
+
+function updatePortfolioSortHeaders(body) {
+  body.querySelectorAll('.portfolio-table th[data-sort]').forEach((th) => {
+    const key = th.dataset.sort;
+    const arrow = portfolioSort.key === key ? (portfolioSort.dir === 1 ? ' ▲' : ' ▼') : '';
+    th.textContent = PORTFOLIO_SORT_LABELS[key] + arrow;
+  });
 }
 
 async function refreshPortfolioQuotes(body) {
@@ -1587,47 +1697,70 @@ async function refreshPortfolioQuotes(body) {
     tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No symbols yet — add one above.</td></tr>';
     return;
   }
+  // A quote-fetch failure (wholesale live-proxy outage, stale snapshot,
+  // etc.) used to blank the entire table with just an error row — which
+  // also hid any symbol the user had just added (it *was* saved to
+  // state.portfolio/localStorage, it just never got a chance to render).
+  // Every symbol in state.portfolio now always gets a row, falling back to
+  // "n/a" per-row if quotes/sparklines couldn't be fetched at all.
+  let quotes = [];
+  let sparkResults = [];
   try {
-    const [quotes, sparkResults] = await Promise.all([
+    [quotes, sparkResults] = await Promise.all([
       fetchQuotes(state.portfolio),
       Promise.allSettled(state.portfolio.map((s) => fetchSparkline(s))),
     ]);
-    const bySymbol = Object.fromEntries(quotes.map((q) => [q.symbol, q]));
-    tbody.innerHTML = '';
-    state.portfolio.forEach((sym, idx) => {
-      const q = bySymbol[sym];
-      const spark = sparkResults[idx]?.status === 'fulfilled' ? sparkResults[idx].value : [];
-      const tr = document.createElement('tr');
-      if (q && !isNaN(q.close)) {
-        const chg = q.close - q.open;
-        const pct = q.open ? (chg / q.open) * 100 : 0;
-        const cls = chg >= 0 ? 'pos' : 'neg';
-        tr.innerHTML = `
-          <td>${escapeHtml(sym)}</td>
-          <td>$${q.close.toFixed(2)}</td>
-          <td class="${cls}">${chg >= 0 ? '+' : ''}${pct.toFixed(2)}%</td>
-          <td>${sparklineSVG(spark, cls)}</td>
-          <td><button class="remove-symbol" data-sym="${escapeAttr(sym)}">✕</button></td>
-        `;
-      } else {
-        tr.innerHTML = `
-          <td>${escapeHtml(sym)}</td>
-          <td colspan="3" class="error-state">n/a</td>
-          <td><button class="remove-symbol" data-sym="${escapeAttr(sym)}">✕</button></td>
-        `;
-      }
-      tbody.appendChild(tr);
-    });
-    tbody.querySelectorAll('.remove-symbol').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        state.portfolio = state.portfolio.filter((s) => s !== btn.dataset.sym);
-        saveState();
-        refreshPortfolioQuotes(body);
-      });
-    });
-  } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="5" class="error-state">Quotes unavailable: ${escapeHtml(err.message)}</td></tr>`;
+  } catch {
+    /* fall through — render every symbol as n/a below */
   }
+  const bySymbol = Object.fromEntries(quotes.map((q) => [q.symbol, q]));
+  const rows = state.portfolio.map((sym, idx) => {
+    const q = bySymbol[sym];
+    const spark = sparkResults[idx]?.status === 'fulfilled' ? sparkResults[idx].value : [];
+    const hasQuote = q && !isNaN(q.close);
+    const chg = hasQuote ? q.close - q.open : null;
+    const pct = hasQuote && q.open ? (chg / q.open) * 100 : null;
+    return { sym, q, spark, hasQuote, pct };
+  });
+  if (portfolioSort.key) {
+    const { key, dir } = portfolioSort;
+    rows.sort((a, b) => {
+      const av = key === 'symbol' ? a.sym : key === 'price' ? (a.hasQuote ? a.q.close : -Infinity) : a.pct ?? -Infinity;
+      const bv = key === 'symbol' ? b.sym : key === 'price' ? (b.hasQuote ? b.q.close : -Infinity) : b.pct ?? -Infinity;
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+  }
+  tbody.innerHTML = '';
+  rows.forEach(({ sym, q, spark, hasQuote, pct }) => {
+    const tr = document.createElement('tr');
+    if (hasQuote) {
+      const cls = pct >= 0 ? 'pos' : 'neg';
+      tr.innerHTML = `
+        <td>${escapeHtml(sym)}</td>
+        <td>$${q.close.toFixed(2)}</td>
+        <td class="${cls}">${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</td>
+        <td>${sparklineSVG(spark, cls)}</td>
+        <td><button class="remove-symbol" data-sym="${escapeAttr(sym)}">✕</button></td>
+      `;
+    } else {
+      tr.innerHTML = `
+        <td>${escapeHtml(sym)}</td>
+        <td colspan="3" class="error-state">n/a</td>
+        <td><button class="remove-symbol" data-sym="${escapeAttr(sym)}">✕</button></td>
+      `;
+    }
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('.remove-symbol').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.portfolio = state.portfolio.filter((s) => s !== btn.dataset.sym);
+      saveState();
+      refreshPortfolioQuotes(body);
+    });
+  });
+  updatePortfolioSortHeaders(body);
 }
 
 // ---------------------------------------------------------------------------
@@ -2036,13 +2169,31 @@ const TRENDING_STOPWORDS = new Set([
   'vs', 'game', 'day', 'week', 'first', 'top', 'best', 'here', 'there',
 ]);
 
+// Google News-sourced headlines (most of this app's feeds) are titled
+// "Actual headline - Source Name", and channel-branded video titles often
+// lead with the channel's own name ("Nat Geo Animals: ...") — both were
+// swamping trending with source/channel names instead of real topics.
+// Built from the feed/channel names already in shared-config.js rather than
+// hand-listing tokens, so it stays correct as sources are added/renamed.
+const PUBLICATION_STOPWORDS = new Set(
+  [...Object.values(FEED_BUNDLES).flatMap((b) => b.feeds.map((f) => f.name)), ...YOUTUBE_CHANNELS.map((c) => c.name)]
+    .flatMap((name) => name.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/))
+    .filter(Boolean)
+);
+// Temporary — remove whenever "ignore Disney" is no longer wanted.
+const TRENDING_TEMP_EXCLUDE = new Set(['disney']);
+
 function extractTrendingTopics(limit = 15) {
   const texts = [
     ...document.querySelectorAll('.feed-item a'),
     ...document.querySelectorAll('.market-item .q'),
   ].map((el) => el.textContent || '');
   const counts = new Map();
-  for (const text of texts) {
+  for (const rawText of texts) {
+    // Drop a trailing " - Source Name" suffix (the greedy capture group
+    // keeps everything up to the *last* " - ", so a headline with an
+    // internal " - " of its own doesn't get over-trimmed).
+    const text = rawText.replace(/^(.*)\s-\s[^-]*$/, '$1');
     const words = text
       .toLowerCase()
       .replace(/['’]/g, '')
@@ -2051,7 +2202,7 @@ function extractTrendingTopics(limit = 15) {
       .filter(Boolean);
     const seenInThisHeadline = new Set();
     for (const w of words) {
-      if (w.length < 3 || TRENDING_STOPWORDS.has(w) || /^\d+$/.test(w)) continue;
+      if (w.length < 3 || TRENDING_STOPWORDS.has(w) || PUBLICATION_STOPWORDS.has(w) || TRENDING_TEMP_EXCLUDE.has(w) || /^\d+$/.test(w)) continue;
       if (seenInThisHeadline.has(w)) continue; // one repetitive title shouldn't dominate
       seenInThisHeadline.add(w);
       counts.set(w, (counts.get(w) || 0) + 1);
@@ -2105,6 +2256,27 @@ scrollTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior:
 // ---------------------------------------------------------------------------
 let loadMetrics = null;
 
+// Separate from the browser's page-load timing above: how long it took for
+// every widget's *initial* data fetch to settle (success or failure).
+// Widgets load in a staggered wave (see renderWidget's setTimeout) and each
+// one is an independent async fetch, so this isn't just page load — it's
+// tracked by the init IIFE below marking which widget ids to watch for,
+// and trackInitialWidgetLoad recording when the last of them finishes.
+let dataLoadStartAt = null;
+let dataLoadTotalSec = null;
+let dataLoadFailCount = 0;
+let initialWidgetIds = null;
+const initialLoadDoneIds = new Set();
+
+function trackInitialWidgetLoad(widgetId, ok) {
+  if (!initialWidgetIds || !initialWidgetIds.has(widgetId) || initialLoadDoneIds.has(widgetId)) return;
+  initialLoadDoneIds.add(widgetId);
+  if (!ok) dataLoadFailCount++;
+  if (initialLoadDoneIds.size === initialWidgetIds.size) {
+    dataLoadTotalSec = (performance.now() - dataLoadStartAt) / 1000;
+  }
+}
+
 function computeLoadMetrics() {
   const nav = performance.getEntriesByType('navigation')[0];
   const paints = performance.getEntriesByType('paint');
@@ -2152,6 +2324,11 @@ loadTimeChip?.addEventListener('click', (e) => {
     <div class="loadtime-row"><span>First contentful paint</span><b>${fmt(m.fcp)}</b></div>
     <div class="loadtime-row"><span>Full load</span><b>${fmt(m.total)}</b></div>
     <div class="loadtime-row"><span>Transferred</span><b>${m.transferKB.toFixed(0)} KB · ${m.resourceCount} requests</b></div>
+    <div class="loadtime-row"><span>All widget data</span><b>${
+      dataLoadTotalSec == null
+        ? 'Still loading…'
+        : `${dataLoadTotalSec.toFixed(2)}s${dataLoadFailCount ? ` (${dataLoadFailCount} failed)` : ''}`
+    }</b></div>
     <div class="loadtime-row"><span>Hosted on</span><b>GitHub Pages</b></div>
   `;
   loadTimeTooltip.classList.remove('hidden');
@@ -2259,6 +2436,8 @@ applyTickerSpeed();
   // this resolves, every fetch* function above transparently prefers the
   // cached snapshot data over a live proxied fetch.
   await loadSnapshot();
+  dataLoadStartAt = performance.now();
+  initialWidgetIds = new Set(state.widgets.map((w) => w.id));
   renderGrid();
   loadTicker();
   loadSecondaryTicker();
@@ -2269,3 +2448,24 @@ setInterval(loadTicker, 5 * 60 * 1000);
 setInterval(loadSecondaryTicker, 2 * 60 * 1000);
 setInterval(loadSnapshot, 10 * 60 * 1000);
 setInterval(updateTrendingTopics, 60 * 1000);
+
+// ---------------------------------------------------------------------------
+// Auto-refresh — re-loads all widget data in place (no page reload) on a
+// timer. Off by default; the interval is a plain user setting (persisted),
+// not tied to how often the underlying snapshot itself actually changes.
+// ---------------------------------------------------------------------------
+let autoRefreshTimer = null;
+function applyAutoRefresh() {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = null;
+  const ms = state.autoRefreshMs || 0;
+  if (ms > 0) autoRefreshTimer = setInterval(refreshAllWidgets, ms);
+}
+const autoRefreshSelect = document.getElementById('autoRefreshSelect');
+autoRefreshSelect.value = String(state.autoRefreshMs || 0);
+autoRefreshSelect.addEventListener('change', (e) => {
+  state.autoRefreshMs = parseInt(e.target.value, 10) || 0;
+  saveState();
+  applyAutoRefresh();
+});
+applyAutoRefresh();

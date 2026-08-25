@@ -166,6 +166,7 @@ table th, .feed-source-group h4, .mo-name,
 }
 .btn:hover { border-color: var(--accent); }
 .btn-primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); font-weight: 600; }
+.auto-refresh-select { font-family: var(--font-sans); }
 
 .icon-btn {
   border: 1px solid var(--border);
@@ -407,6 +408,38 @@ body.sidebar-collapsed .sidebar-toggle-btn { align-self: center; }
 .widget.dragging { opacity: 0.4; }
 .widget.wide { grid-column: span 2; }
 
+/* Two adjacent "half" widgets render inside this wrapper (one grid cell,
+   split top/bottom) instead of each getting its own — see renderGrid() in
+   app.js. The wrapper matches a normal widget's max-height so each half is
+   roughly half of a full widget's height. */
+.widget-half-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-height: 520px;
+  min-height: 260px;
+  min-width: 0;
+  /* The grid's align-items:start doesn't stretch items to the row height by
+     default, so without this, the wrapper has no definite height of its
+     own for its flex:1 children to divide — they'd collapse to ~0 (flex
+     basis 0, min-height 0, nothing else establishing a size). Stretching
+     just this item to the row's height (set by its taller siblings) gives
+     it something real to split 50/50. min-height above is the floor for
+     the rare case where a pair is the tallest/only thing in its row. */
+  align-self: stretch;
+}
+.widget-half-pair .widget {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
+}
+.widget-header .controls .half-btn.active { color: var(--accent); }
+
+/* CrypTrack's content is a fixed-height iframe by default, which makes it
+   look short next to taller feed/table widgets even though there's no
+   reason it couldn't fill the row like everything else does. */
+.widget[data-type="cryptrack"] { align-self: stretch; }
+
 .widget-header {
   display: flex;
   align-items: center;
@@ -484,7 +517,8 @@ body.sidebar-collapsed .sidebar-toggle-btn { align-self: center; }
 
 .widget-iframe {
   width: 100%;
-  height: 280px;
+  height: 100%;
+  min-height: 280px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg-widget-header);
@@ -610,6 +644,8 @@ table.markets-table .mo-price { font-weight: 600; }
 }
 table.portfolio-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
 table.portfolio-table th { text-align: left; color: var(--text-muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; padding-bottom: 0.3rem; }
+table.portfolio-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+table.portfolio-table th.sortable:hover { color: var(--accent); }
 table.portfolio-table td { padding: 0.35rem 0; border-top: 1px solid var(--border); }
 .pos { color: var(--up); font-weight: 600; }
 .neg { color: var(--down); font-weight: 600; }
