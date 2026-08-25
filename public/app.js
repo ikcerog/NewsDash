@@ -20,10 +20,18 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.7.3';
+} from './shared-config.js?v=0.7.4';
 
-const APP_VERSION = '0.7.3';
+const APP_VERSION = '0.7.4';
 const PATCH_NOTES = [
+  {
+    version: '0.7.4',
+    date: '2026-08-25',
+    notes: [
+      'Trending Now: swapped Reddit r/all (one of Reddit\'s highest-traffic endpoints — consistently timed out rather than actually erroring, both direct and through the proxy fallback) for r/OutOfTheLoop, a much smaller subreddit literally about explaining what\'s currently trending. Added Product Hunt, Know Your Meme, and BuzzFeed as three more free/keyless trending sources — 5 sources total, up from 2 (1 of which never worked).',
+      'More listings per feed source across every feed-bundle widget: compact view 5 → 8 items, focus view 20 → 25, and the underlying per-feed fetch now keeps up to 25 (was 12) so there\'s enough behind the scenes to actually show that many.',
+    ],
+  },
   {
     version: '0.7.3',
     date: '2026-08-25',
@@ -484,6 +492,10 @@ function sortFeedItemsByDate(items) {
     return (isNaN(tb) ? -Infinity : tb) - (isNaN(ta) ? -Infinity : ta);
   });
 }
+// How many items to keep per feed source after fetching (mirrored in
+// fetch-snapshot.mjs) — the compact/focus view limits below further trim
+// what's actually displayed, but can't show more than this was kept.
+const FEED_ITEM_FETCH_CAP = 25;
 
 function parseFeedXML(xmlText) {
   const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
@@ -506,7 +518,7 @@ function parseFeedXML(xmlText) {
       null;
     items.push({ title, link, pubDate });
   });
-  return sortFeedItemsByDate(items).slice(0, 12);
+  return sortFeedItemsByDate(items).slice(0, FEED_ITEM_FETCH_CAP);
 }
 
 // rss2json.com is a free, keyless, purpose-built RSS-to-JSON service with
@@ -525,7 +537,7 @@ async function fetchFeedViaRss2Json(url) {
     link: it.link || '#',
     pubDate: it.pubDate || null,
   }));
-  return sortFeedItemsByDate(items).slice(0, 12);
+  return sortFeedItemsByDate(items).slice(0, FEED_ITEM_FETCH_CAP);
 }
 
 async function fetchFeed(url) {
@@ -1268,7 +1280,7 @@ function getDragAfterElement(container, y, x) {
 // Renders a widget's content into `body`. `focus: true` (used by the Focus
 // modal) requests higher item limits than the compact card view.
 async function renderWidgetInto(widget, body, { focus = false } = {}) {
-  const feedLimit = focus ? 20 : 5;
+  const feedLimit = focus ? FEED_ITEM_FETCH_CAP : 8;
   const marketLimit = focus ? 50 : 15;
   const listLimit = focus ? 20 : 8;
 

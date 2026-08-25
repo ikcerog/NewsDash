@@ -62,7 +62,7 @@ function mapFeedItems(feed) {
     link: it.link || '#',
     pubDate: it.pubDate || it.isoDate || null,
   }));
-  return sortFeedItemsByDate(items).slice(0, 12);
+  return sortFeedItemsByDate(items).slice(0, 25); // mirrors FEED_ITEM_FETCH_CAP in app.js
 }
 
 // Hitting the free codetabs proxy with several concurrent reddit fallback
