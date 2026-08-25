@@ -20,10 +20,17 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.7.4';
+} from './shared-config.js?v=0.7.5';
 
-const APP_VERSION = '0.7.4';
+const APP_VERSION = '0.7.5';
 const PATCH_NOTES = [
+  {
+    version: '0.7.5',
+    date: '2026-08-25',
+    notes: [
+      'Trending Now: dropped Reddit entirely instead of swapping subreddits again — r/OutOfTheLoop (added last release to replace r/all) timed out too in a live snapshot run, so this isn\'t about any one subreddit being too large, it\'s GitHub Actions\' IP ranges getting broadly rate-limited by Reddit. The other three additions (Product Hunt, Know Your Meme, BuzzFeed) all verified working with real item counts in that same run.',
+    ],
+  },
   {
     version: '0.7.4',
     date: '2026-08-25',

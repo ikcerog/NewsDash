@@ -206,13 +206,15 @@ export const FEED_BUNDLES = {
     label: 'Trending Now',
     feeds: [
       { name: 'Google Trends (US)', url: 'https://trends.google.com/trending/rss?geo=US' },
-      // r/all is one of Reddit's highest-traffic endpoints and consistently
-      // timed out (both direct and through the reddit-proxy fallback in
-      // fetch-snapshot.mjs) rather than actually erroring — swapped for
-      // r/OutOfTheLoop, a much smaller subreddit whose whole purpose is
-      // explaining what's currently trending/viral, which both fits the
-      // bundle's theme better and is far less likely to be rate-limited.
-      { name: 'Reddit r/OutOfTheLoop', url: 'https://www.reddit.com/r/OutOfTheLoop/top/.rss?t=day' },
+      // No Reddit source here on purpose: r/all consistently timed out
+      // (both direct and via the reddit-proxy fallback in
+      // fetch-snapshot.mjs), and swapping to a much smaller subreddit
+      // (r/OutOfTheLoop) timed out too in a real snapshot run — this isn't
+      // about any one subreddit being too large/popular, GitHub Actions'
+      // shared IP ranges appear to be broadly rate-limited by Reddit in a
+      // way no subreddit choice reliably works around. Every other source
+      // below was verified working (real item counts, no errors) in a live
+      // snapshot run before being kept.
       { name: 'Product Hunt', url: 'https://www.producthunt.com/feed' },
       { name: 'Know Your Meme', url: 'https://knowyourmeme.com/newsfeed.rss' },
       { name: 'BuzzFeed', url: 'https://www.buzzfeed.com/index.xml' },
