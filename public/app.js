@@ -20,10 +20,17 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.7.2';
+} from './shared-config.js?v=0.7.3';
 
-const APP_VERSION = '0.7.2';
+const APP_VERSION = '0.7.3';
 const PATCH_NOTES = [
+  {
+    version: '0.7.3',
+    date: '2026-08-25',
+    notes: [
+      'Fixed feed items sometimes showing out of chronological order ("4d ago" above "1d ago", etc.) — nothing ever explicitly sorted items by publish date, so they rendered in whatever order the source feed happened to return them, and not every feed is strictly reverse-chronological (direct site RSS in particular sometimes mixes in "most read" items ahead of newer ones). Every feed source (snapshot, live fetch, and the rss2json fallback) now sorts by date, newest first, before anything gets truncated to the displayed count. Takes effect for snapshot-covered feeds on the next snapshot run.',
+    ],
+  },
   {
     version: '0.7.2',
     date: '2026-08-25',
@@ -464,6 +471,20 @@ async function proxiedFetch(url, { direct = true } = {}) {
   );
 }
 
+// Not every feed reliably returns items in reverse-chronological order —
+// direct site RSS (as opposed to, say, a Google News search feed) sometimes
+// mixes in "most read"/editorially-pinned items ahead of newer ones. Sorting
+// explicitly means the displayed order (and each item's "Nd ago" timestamp)
+// is always newest-first regardless of what order the source handed items
+// over in. Undated items sink to the bottom rather than breaking the sort.
+function sortFeedItemsByDate(items) {
+  return [...items].sort((a, b) => {
+    const ta = a.pubDate ? Date.parse(a.pubDate) : NaN;
+    const tb = b.pubDate ? Date.parse(b.pubDate) : NaN;
+    return (isNaN(tb) ? -Infinity : tb) - (isNaN(ta) ? -Infinity : ta);
+  });
+}
+
 function parseFeedXML(xmlText) {
   const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
   if (doc.querySelector('parsererror')) throw new Error('Feed parse error');
@@ -472,7 +493,6 @@ function parseFeedXML(xmlText) {
   const itemNodes = isAtom ? doc.querySelectorAll('entry') : doc.querySelectorAll('item');
   const items = [];
   itemNodes.forEach((node) => {
-    if (items.length >= 12) return;
     const title = node.querySelector('title')?.textContent?.trim() || '(untitled)';
     let link = node.querySelector('link')?.textContent?.trim();
     if (!link) {
@@ -486,7 +506,7 @@ function parseFeedXML(xmlText) {
       null;
     items.push({ title, link, pubDate });
   });
-  return items;
+  return sortFeedItemsByDate(items).slice(0, 12);
 }
 
 // rss2json.com is a free, keyless, purpose-built RSS-to-JSON service with
@@ -500,11 +520,12 @@ async function fetchFeedViaRss2Json(url) {
   if (!res.ok) throw new Error(`rss2json ${res.status}`);
   const data = await res.json();
   if (data.status !== 'ok') throw new Error(data.message || 'rss2json failed');
-  return (data.items || []).slice(0, 12).map((it) => ({
+  const items = (data.items || []).map((it) => ({
     title: it.title || '(untitled)',
     link: it.link || '#',
     pubDate: it.pubDate || null,
   }));
+  return sortFeedItemsByDate(items).slice(0, 12);
 }
 
 async function fetchFeed(url) {

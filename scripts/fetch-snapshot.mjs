@@ -44,12 +44,25 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+// Not every feed reliably returns items in reverse-chronological order —
+// direct site RSS sometimes mixes in "most read"/pinned items ahead of
+// newer ones. Sort explicitly so the client always shows newest-first
+// regardless of source order (mirrors sortFeedItemsByDate in app.js).
+function sortFeedItemsByDate(items) {
+  return [...items].sort((a, b) => {
+    const ta = a.pubDate ? Date.parse(a.pubDate) : NaN;
+    const tb = b.pubDate ? Date.parse(b.pubDate) : NaN;
+    return (isNaN(tb) ? -Infinity : tb) - (isNaN(ta) ? -Infinity : ta);
+  });
+}
+
 function mapFeedItems(feed) {
-  return (feed.items || []).slice(0, 12).map((it) => ({
+  const items = (feed.items || []).map((it) => ({
     title: it.title || '(untitled)',
     link: it.link || '#',
     pubDate: it.pubDate || it.isoDate || null,
   }));
+  return sortFeedItemsByDate(items).slice(0, 12);
 }
 
 // Hitting the free codetabs proxy with several concurrent reddit fallback
