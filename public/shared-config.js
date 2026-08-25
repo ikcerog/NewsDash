@@ -88,6 +88,15 @@ export const DEFAULT_PORTFOLIO = [
   'TSLA', 'F',
 ];
 
+// Tickers a user has actually added to their own (localStorage-only)
+// portfolio, kept pre-fetched in the snapshot alongside DEFAULT_PORTFOLIO
+// so they don't depend on the live client-side CORS-proxy chain — the same
+// flaky path that caused most of this app's reliability problems — the way
+// any symbol outside DEFAULT_PORTFOLIO otherwise would. Separate from
+// DEFAULT_PORTFOLIO so adding one here doesn't change what a new user's
+// starter portfolio looks like.
+export const EXTRA_SNAPSHOT_SYMBOLS = ['RKT'];
+
 // Same universe, used by the Big Movers widget to compute today's (or
 // last available session's, on weekends) biggest gainers/losers.
 export const MOVERS_UNIVERSE = DEFAULT_PORTFOLIO;

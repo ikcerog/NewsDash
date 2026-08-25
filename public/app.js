@@ -20,10 +20,17 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.7.0';
+} from './shared-config.js?v=0.7.1';
 
-const APP_VERSION = '0.7.0';
+const APP_VERSION = '0.7.1';
 const PATCH_NOTES = [
+  {
+    version: '0.7.1',
+    date: '2026-08-25',
+    notes: [
+      'Fixed RKT (and any other portfolio symbol outside the default set) always coming back unavailable: the pre-fetched snapshot only covers DEFAULT_PORTFOLIO, so anything outside it depends entirely on the live client-side CORS-proxy chain every single load — the same flaky path behind most of this app\'s reliability issues, just for one symbol instead of everything. Added an EXTRA_SNAPSHOT_SYMBOLS list (currently just RKT) that the snapshot script now also pre-fetches, so it gets the same fast/reliable path as the default names. Takes effect on the next snapshot run.',
+    ],
+  },
   {
     version: '0.7.0',
     date: '2026-08-25',

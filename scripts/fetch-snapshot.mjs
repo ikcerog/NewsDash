@@ -9,7 +9,7 @@ import Parser from 'rss-parser';
 import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FEED_BUNDLES, MARKET_GROUPS, DEFAULT_PORTFOLIO, STATUS_SERVICES, YOUTUBE_CHANNELS, normalizeStooqSymbol, toYahooSymbol } from '../public/shared-config.js';
+import { FEED_BUNDLES, MARKET_GROUPS, DEFAULT_PORTFOLIO, EXTRA_SNAPSHOT_SYMBOLS, STATUS_SERVICES, YOUTUBE_CHANNELS, normalizeStooqSymbol, toYahooSymbol } from '../public/shared-config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = path.join(__dirname, '../public/data/snapshot.json');
@@ -474,7 +474,7 @@ function mergeKeyedMap(prev, next, isGood) {
 async function main() {
   const previous = await loadPreviousSnapshot();
   const allMarketSymbols = Object.values(MARKET_GROUPS).flatMap((g) => g.symbols.map((s) => s.sym));
-  const sparklineSymbols = [...new Set([...allMarketSymbols, ...DEFAULT_PORTFOLIO])];
+  const sparklineSymbols = [...new Set([...allMarketSymbols, ...DEFAULT_PORTFOLIO, ...EXTRA_SNAPSHOT_SYMBOLS])];
 
   const [feeds, youtube, polymarket, quotes, wikiTrending, treasury, earthquakes, nationalAlerts, serviceStatus, globalDisasters] = await Promise.all([
     safe('feed bundles', fetchAllBundles),
