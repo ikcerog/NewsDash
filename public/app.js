@@ -22,8 +22,16 @@ import {
   toYahooSymbol,
 } from './shared-config.js?v=0.7.5';
 
-const APP_VERSION = '0.7.5';
+const APP_VERSION = '0.7.6';
 const PATCH_NOTES = [
+  {
+    version: '0.7.6',
+    date: '2026-08-26',
+    notes: [
+      'Data freshness: the "⏱" load-time tooltip in the header now shows "Data snapshot as of" with the exact time and age of the underlying data. Investigated a report of days-old data — the snapshot itself was only ~90 min stale, not days, but there was no way to see that from the UI, so this makes it visible instead of a mystery.',
+      'Snapshot generation now runs every 15 min on weekdays (was every 30 min). GitHub Actions\' scheduler doesn\'t guarantee on-time delivery for scheduled workflows — a live check of the last 15 runs showed the "every 30 min" cron actually landing 50-90 min apart under real-world scheduler delay. Requesting every 15 min is what it takes to keep observed freshness near the original ~30 min target.',
+    ],
+  },
   {
     version: '0.7.5',
     date: '2026-08-25',
@@ -2388,6 +2396,12 @@ loadTimeChip?.addEventListener('click', (e) => {
   }
   const m = loadMetrics || computeLoadMetrics();
   const fmt = (v) => (v == null ? '—' : `${v.toFixed(2)}s`);
+  const snapAgeLabel = (() => {
+    if (!SNAPSHOT?.generatedAt) return 'Unavailable (live fetches only)';
+    const ageMin = Math.round((Date.now() - new Date(SNAPSHOT.generatedAt).getTime()) / 60000);
+    const ageStr = ageMin < 60 ? `${ageMin}m ago` : `${(ageMin / 60).toFixed(1)}h ago`;
+    return `${new Date(SNAPSHOT.generatedAt).toLocaleTimeString()} (${ageStr})`;
+  })();
   loadTimeTooltip.innerHTML = `
     <div class="loadtime-row"><span>Time to first byte</span><b>${fmt(m.ttfb)}</b></div>
     <div class="loadtime-row"><span>First contentful paint</span><b>${fmt(m.fcp)}</b></div>
@@ -2398,6 +2412,7 @@ loadTimeChip?.addEventListener('click', (e) => {
         ? 'Still loading…'
         : `${dataLoadTotalSec.toFixed(2)}s${dataLoadFailCount ? ` (${dataLoadFailCount} failed)` : ''}`
     }</b></div>
+    <div class="loadtime-row"><span>Data snapshot as of</span><b>${snapAgeLabel}</b></div>
     <div class="loadtime-row"><span>Hosted on</span><b>GitHub Pages</b></div>
   `;
   loadTimeTooltip.classList.remove('hidden');
