@@ -22,8 +22,17 @@ import {
   toYahooSymbol,
 } from './shared-config.js?v=0.7.5';
 
-const APP_VERSION = '0.7.6';
+const APP_VERSION = '0.7.7';
 const PATCH_NOTES = [
+  {
+    version: '0.7.7',
+    date: '2026-08-28',
+    notes: [
+      'Fixed real stale-data reports: the snapshot cron is supposed to run every 15 min on weekdays, but a live check found GitHub’s scheduler actually landing it 2-11+ hours apart in practice (confirmed against real run history) — a platform limitation with frequent `schedule:` triggers, not this app’s workflow config. The client was still trusting a snapshot for up to 20 hours before ever falling back to a live fetch, so during one of those gaps it just kept serving hours-old headlines and market data with nothing wrong visible.',
+      'Lowered that trust window to 90 minutes — past that, widgets now transparently fall back to live per-source fetches (slower/flakier, but never worse than guaranteed-stale) until a fresh snapshot lands.',
+      'The ⏱ header chip now turns amber whenever the cached snapshot is stale (was only visible by clicking in for exact numbers).',
+    ],
+  },
   {
     version: '0.7.6',
     date: '2026-08-26',
@@ -426,18 +435,34 @@ async function loadSnapshot() {
   } catch (e) {
     console.warn('Snapshot unavailable, falling back to live fetches:', e.message);
   }
+  updateFreshnessIndicator();
 }
 
-// The snapshot cron now runs every 30 min on weekdays but only ~3x/day on
-// weekends (see fetch-snapshot.yml), leaving gaps of up to ~15 hours — and
-// the snapshot script now carries forward last-known-good data per item on
-// a failed fetch, so an old generatedAt doesn't mean stale content
-// everywhere. A same-origin snapshot a few hours old is still far more
-// reliable than the live CORS-proxy chain, so prefer it generously and only
-// fall back to live fetches when the snapshot is genuinely missing/ancient.
+// Marks the header's ⏱ chip amber whenever the cached snapshot has aged
+// past SNAPSHOT_FRESH_MS, so staleness is visible without having to click
+// into the tooltip — the underlying cause is GitHub's scheduler running
+// the fetch cron late (see snapshotFresh() above), which this can't fix,
+// only make visible.
+function updateFreshnessIndicator() {
+  const chip = document.getElementById('loadTimeChip');
+  if (!chip) return;
+  chip.classList.toggle('stale', !snapshotFresh());
+}
+
+// The snapshot cron is *supposed* to run every 15 min on weekdays, but
+// GitHub's scheduler doesn't guarantee on-time delivery for `schedule:`
+// triggers — a live check found real gaps of 2-11+ hours between runs
+// despite the schedule, a platform limitation with frequent cron on the
+// free tier, not a bug in this repo's workflow. Previously this threshold
+// was 20h (to match a sparser weekend cadence), which meant a snapshot that
+// went stale for hours on a weekday was still trusted blindly with no live
+// fallback. Now: trust the snapshot for up to 90 min, then transparently
+// fall back to live per-widget fetches (flakier, but strictly better than
+// guaranteed-stale data) until a fresh snapshot lands.
+const SNAPSHOT_FRESH_MS = 90 * 60 * 1000;
 function snapshotFresh() {
   if (!SNAPSHOT || !SNAPSHOT.generatedAt) return false;
-  return Date.now() - new Date(SNAPSHOT.generatedAt).getTime() < 20 * 60 * 60 * 1000;
+  return Date.now() - new Date(SNAPSHOT.generatedAt).getTime() < SNAPSHOT_FRESH_MS;
 }
 
 // ---------------------------------------------------------------------------
