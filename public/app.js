@@ -22,8 +22,15 @@ import {
   toYahooSymbol,
 } from './shared-config.js?v=0.7.5';
 
-const APP_VERSION = '0.8.1';
+const APP_VERSION = '0.8.2';
 const PATCH_NOTES = [
+  {
+    version: '0.8.2',
+    date: '2026-08-28',
+    notes: [
+      'Fixed forecast cards stretching wide on longer forecast text (e.g. "Slight Chance Showers And Thunderstorms then Partly Su…") — cards are now a fixed width with the description wrapping inside instead of expanding the card.',
+    ],
+  },
   {
     version: '0.8.1',
     date: '2026-08-28',
