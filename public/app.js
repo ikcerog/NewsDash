@@ -22,8 +22,15 @@ import {
   toYahooSymbol,
 } from './shared-config.js?v=0.7.5';
 
-const APP_VERSION = '0.8.3';
+const APP_VERSION = '0.8.4';
 const PATCH_NOTES = [
+  {
+    version: '0.8.4',
+    date: '2026-08-28',
+    notes: [
+      'Reworded Polymarket\'s "24h volume: $X" to "Traded, last 24h: $X" — checked a stale-data report against it and the underlying data was actually current (a snapshot well under an hour old, with today\'s-dated markets); the "24h" in the volume label was the likely culprit, easy to misread as a staleness indicator sitting right under the odds with nothing else on the card for contrast.',
+    ],
+  },
   {
     version: '0.8.3',
     date: '2026-08-28',
@@ -1777,7 +1784,7 @@ function renderMarketItem(m) {
   div.innerHTML = `
     <a class="q" href="${escapeAttr(m.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(m.question)}</a>
     <div class="odds">${oddsHtml}</div>
-    <div class="stats">24h volume: $${Math.round(m.volume24hr).toLocaleString()}</div>
+    <div class="stats">Traded, last 24h: $${Math.round(m.volume24hr).toLocaleString()}</div>
   `;
   return div;
 }
