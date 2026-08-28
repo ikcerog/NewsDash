@@ -20,10 +20,17 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.7.5';
+} from './shared-config.js?v=0.8.6';
 
-const APP_VERSION = '0.8.5';
+const APP_VERSION = '0.8.6';
 const PATCH_NOTES = [
+  {
+    version: '0.8.6',
+    date: '2026-08-28',
+    notes: [
+      'Found the real reason the Slack fix wasn\'t showing up: the shared-config.js import\'s own ?v= cache-bust string was hardcoded to 0.7.5 and never bumped across six releases since — so browsers/CDN could keep serving a shared-config.js cached from before any of those changes indefinitely, this one included. Bumped it and it now moves with APP_VERSION on every release like the rest.',
+    ],
+  },
   {
     version: '0.8.5',
     date: '2026-08-28',
