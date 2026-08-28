@@ -20,10 +20,17 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.8.6';
+} from './shared-config.js?v=0.8.7';
 
-const APP_VERSION = '0.8.6';
+const APP_VERSION = '0.8.7';
 const PATCH_NOTES = [
+  {
+    version: '0.8.7',
+    date: '2026-08-28',
+    notes: [
+      'Fixed Service Status alignment for long descriptions (e.g. Slack\'s wrapped 3-line incident text): the description column was right-aligned, which turns wrapped text into a ragged, hard-to-read block. Now left-aligned with a fixed-width name column, so short one-line statuses and long wrapped ones both stay tidy.',
+    ],
+  },
   {
     version: '0.8.6',
     date: '2026-08-28',

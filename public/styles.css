@@ -634,15 +634,16 @@ body.sidebar-collapsed .sidebar-feeds-section { display: none; }
 .forecast-temp { font-size: 1.05rem; font-weight: 700; margin: 0.2rem 0; }
 .forecast-desc { font-size: 0.7rem; color: var(--text-muted); line-height: 1.2; word-wrap: break-word; }
 
-table.status-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-table.status-table td { padding: 0.4rem 0; border-top: 1px solid var(--border); }
+table.status-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; table-layout: fixed; }
+table.status-table td { padding: 0.4rem 0; border-top: 1px solid var(--border); vertical-align: top; }
 table.status-table tr:first-child td { border-top: none; }
+table.status-table td:first-child { width: 42%; white-space: nowrap; }
 .status-dot { display: inline-block; width: 0.55rem; height: 0.55rem; border-radius: 999px; margin-right: 0.5rem; }
 .status-dot.ok { background: var(--up); }
 .status-dot.minor { background: #e0a622; }
 .status-dot.major { background: var(--down); }
 .status-dot.unknown { background: var(--text-muted); }
-.status-desc { color: var(--text-muted); text-align: right; }
+.status-desc { color: var(--text-muted); text-align: left; line-height: 1.35; }
 
 .markets-overview { display: flex; flex-direction: column; gap: 0.9rem; }
 table.markets-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
