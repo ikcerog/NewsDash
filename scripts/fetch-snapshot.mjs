@@ -457,6 +457,9 @@ async function fetchServiceStatus() {
       return { name: s.name, indicator: data.status?.indicator || 'unknown', description: data.status?.description || 'Unknown' };
     })
   );
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') console.log(`[warn] service status: ${STATUS_SERVICES[i].name} — ${r.reason?.message || r.reason}`);
+  });
   return STATUS_SERVICES.map((s, i) => (results[i].status === 'fulfilled' ? results[i].value : { name: s.name, indicator: null, description: null }));
 }
 
