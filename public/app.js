@@ -22,8 +22,15 @@ import {
   toYahooSymbol,
 } from './shared-config.js?v=0.7.5';
 
-const APP_VERSION = '0.8.4';
+const APP_VERSION = '0.8.5';
 const PATCH_NOTES = [
+  {
+    version: '0.8.5',
+    date: '2026-08-28',
+    notes: [
+      'Fixed Slack always showing "Unavailable" in Service Status: it was hitting a Statuspage.io-style URL (like the other 5 services) that 404s, because Slack runs its own custom status API with a different URL and JSON shape. Fixed the URL and added a Slack-specific parser for it.',
+    ],
+  },
   {
     version: '0.8.4',
     date: '2026-08-28',
@@ -1202,6 +1209,16 @@ async function fetchServiceStatus() {
         const res = await fetch(s.url, { cache: 'no-store', signal: AbortSignal.timeout(7000) });
         if (!res.ok) throw new Error(`${res.status}`);
         const data = await res.json();
+        // Slack's own status API returns { status: "ok"/"active", active_incidents: [...] }
+        // instead of Statuspage.io's { status: { indicator, description } }.
+        if (s.name === 'Slack') {
+          const incidents = data.active_incidents || [];
+          return {
+            name: s.name,
+            indicator: incidents.length ? 'minor' : 'none',
+            description: incidents.length ? incidents[0].title : 'All Systems Operational',
+          };
+        }
         return { name: s.name, indicator: data.status?.indicator || 'unknown', description: data.status?.description || 'Unknown' };
       })
     )

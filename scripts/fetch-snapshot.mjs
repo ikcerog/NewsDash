@@ -454,6 +454,16 @@ async function fetchServiceStatus() {
       const res = await fetch(s.url, { signal: AbortSignal.timeout(10000) });
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
+      // Slack's own status API returns { status: "ok"/"active", active_incidents: [...] }
+      // instead of Statuspage.io's { status: { indicator, description } }.
+      if (s.name === 'Slack') {
+        const incidents = data.active_incidents || [];
+        return {
+          name: s.name,
+          indicator: incidents.length ? 'minor' : 'none',
+          description: incidents.length ? incidents[0].title : 'All Systems Operational',
+        };
+      }
       return { name: s.name, indicator: data.status?.indicator || 'unknown', description: data.status?.description || 'Unknown' };
     })
   );

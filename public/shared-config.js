@@ -348,7 +348,11 @@ export const STATUS_SERVICES = [
   { name: 'Netlify', url: 'https://www.netlifystatus.com/api/v2/summary.json' },
   { name: 'Reddit', url: 'https://www.redditstatus.com/api/v2/summary.json' },
   { name: 'Discord', url: 'https://discordstatus.com/api/v2/summary.json' },
-  { name: 'Slack', url: 'https://slack-status.com/api/v2/summary.json' },
+  // Slack runs its own custom status API (not Statuspage.io like the others
+  // above), hence the different URL — see the Slack special-case in both
+  // fetchServiceStatus implementations (app.js and fetch-snapshot.mjs) for
+  // the different response shape this endpoint returns.
+  { name: 'Slack', url: 'https://slack-status.com/api/v2.0.0/current' },
 ];
 
 // Widget type -> left-rail module category, used by the sidebar filter.
