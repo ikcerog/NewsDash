@@ -604,6 +604,11 @@ body.sidebar-collapsed .sidebar-feeds-section { display: none; }
 }
 .outbound-btn { white-space: nowrap; }
 
+.outbound-card { text-align: center; padding: 1.5rem 1rem; }
+.outbound-card-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+.outbound-card p { margin: 0.3rem 0; }
+.outbound-card .btn { margin-top: 0.8rem; }
+
 .potd-image { display: block; width: 100%; height: auto; border-radius: 6px; }
 .potd-caption { padding-top: 0.6rem; }
 .potd-title { font-weight: 600; }

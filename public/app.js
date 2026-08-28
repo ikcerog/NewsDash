@@ -22,8 +22,15 @@ import {
   toYahooSymbol,
 } from './shared-config.js?v=0.7.5';
 
-const APP_VERSION = '0.8.2';
+const APP_VERSION = '0.8.3';
 const PATCH_NOTES = [
+  {
+    version: '0.8.3',
+    date: '2026-08-28',
+    notes: [
+      'Fixed Infrastructure Map (OpenInfraMap) widget: confirmed it blocks being embedded (X-Frame-Options), so the iframe was just rendering blank. Replaced with a link-out card instead of pretending it\'s an embed.',
+    ],
+  },
   {
     version: '0.8.2',
     date: '2026-08-28',
@@ -1695,19 +1702,17 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
       </div>
     `;
   } else if (widget.type === 'openinframap') {
-    // Centered on Detroit by default — OpenInfraMap has no API to speak of
-    // (it's rendered from vector tiles, not JSON), so this embeds their own
-    // map the same way the CrypTrack widget embeds ikcerog.github.io/cryptrack.
-    // If OpenInfraMap ever sets X-Frame-Options/CSP to block framing, the
-    // iframe just renders blank — the outbound link below still works either way.
+    // Centered on Detroit by default. OpenInfraMap blocks being framed
+    // (X-Frame-Options/CSP), confirmed by it just rendering blank when
+    // embedded — no API to fall back to either (it's vector tiles, not
+    // JSON), so this is an outbound link card rather than an embed.
     const src = 'https://openinframap.org/#9.49/42.3076/-83.1901';
     body.innerHTML = `
-      <iframe class="${focus ? 'widget-iframe widget-iframe-large' : 'widget-iframe'}"
-        src="${src}" loading="lazy"
-        title="OpenInfraMap — power, telecom &amp; pipeline infrastructure"></iframe>
-      <div class="outbound-row">
-        <span class="meta">Power grid, telecom &amp; pipeline infrastructure (OpenStreetMap data)</span>
-        <a class="btn btn-primary outbound-btn" href="${src}" target="_blank" rel="noopener noreferrer">Open full map ↗</a>
+      <div class="outbound-card">
+        <div class="outbound-card-icon">🔌</div>
+        <p>OpenInfraMap doesn't allow itself to be embedded, so this opens in a new tab instead of showing inline.</p>
+        <p class="meta">Power grid, telecom &amp; pipeline infrastructure, from OpenStreetMap data.</p>
+        <a class="btn btn-primary outbound-btn" href="${src}" target="_blank" rel="noopener noreferrer">Open OpenInfraMap ↗</a>
       </div>
     `;
   }
