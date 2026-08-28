@@ -22,8 +22,16 @@ import {
   toYahooSymbol,
 } from './shared-config.js?v=0.7.5';
 
-const APP_VERSION = '0.7.7';
+const APP_VERSION = '0.7.8';
 const PATCH_NOTES = [
+  {
+    version: '0.7.8',
+    date: '2026-08-28',
+    notes: [
+      'Reverted the 90-min live-fetch fallback from 0.7.7 — it backfired. Since the cron gaps it was meant to work around are routinely multiple hours (not rare), it made the flaky live CORS-proxy chain the *normal* rendering path for every widget during those gaps, causing widespread "Unavailable right now" errors instead of the coherent (if aging) cached snapshot. A stale snapshot beats a live fetch storm.',
+      'Split into two thresholds instead: snapshots are still used to render (generous, 20h — unchanged from before 0.7.7) while the amber staleness warning on the ⏱ chip stays tight (90 min), so you get an honest "this is old" signal without the site nuking its own reliability to chase it.',
+    ],
+  },
   {
     version: '0.7.7',
     date: '2026-08-28',
@@ -439,30 +447,43 @@ async function loadSnapshot() {
 }
 
 // Marks the header's ⏱ chip amber whenever the cached snapshot has aged
-// past SNAPSHOT_FRESH_MS, so staleness is visible without having to click
-// into the tooltip — the underlying cause is GitHub's scheduler running
-// the fetch cron late (see snapshotFresh() above), which this can't fix,
-// only make visible.
+// past SNAPSHOT_STALE_WARN_MS, so staleness is visible without having to
+// click into the tooltip — the underlying cause is GitHub's scheduler
+// running the fetch cron late (see snapshotFresh()/snapshotStale() above),
+// which this can't fix, only make visible.
 function updateFreshnessIndicator() {
   const chip = document.getElementById('loadTimeChip');
   if (!chip) return;
-  chip.classList.toggle('stale', !snapshotFresh());
+  chip.classList.toggle('stale', snapshotStale());
 }
 
 // The snapshot cron is *supposed* to run every 15 min on weekdays, but
 // GitHub's scheduler doesn't guarantee on-time delivery for `schedule:`
 // triggers — a live check found real gaps of 2-11+ hours between runs
 // despite the schedule, a platform limitation with frequent cron on the
-// free tier, not a bug in this repo's workflow. Previously this threshold
-// was 20h (to match a sparser weekend cadence), which meant a snapshot that
-// went stale for hours on a weekday was still trusted blindly with no live
-// fallback. Now: trust the snapshot for up to 90 min, then transparently
-// fall back to live per-widget fetches (flakier, but strictly better than
-// guaranteed-stale data) until a fresh snapshot lands.
-const SNAPSHOT_FRESH_MS = 90 * 60 * 1000;
+// free tier, not a bug in this repo's workflow.
+//
+// Two separate questions, two separate thresholds:
+//   - snapshotUsable(): is the snapshot good enough to render from, instead
+//     of falling back to the live CORS-proxy chain? Kept generous (20h) —
+//     tried dropping this to 90min once and it backfired: during a routine
+//     multi-hour cron gap (which, per the above, is common, not rare) it
+//     made the *flaky live path* the normal experience for every widget at
+//     once, producing widespread "Unavailable right now" instead of the
+//     coherent (if aging) cached data. A stale snapshot beats a live proxy
+//     chain falling over under load.
+//   - snapshotStale(): is it old enough to warn about in the UI? Much
+//     tighter (90min) — this only drives the visible amber indicator, it
+//     never changes what data gets rendered.
+const SNAPSHOT_USABLE_MS = 20 * 60 * 60 * 1000;
+const SNAPSHOT_STALE_WARN_MS = 90 * 60 * 1000;
 function snapshotFresh() {
   if (!SNAPSHOT || !SNAPSHOT.generatedAt) return false;
-  return Date.now() - new Date(SNAPSHOT.generatedAt).getTime() < SNAPSHOT_FRESH_MS;
+  return Date.now() - new Date(SNAPSHOT.generatedAt).getTime() < SNAPSHOT_USABLE_MS;
+}
+function snapshotStale() {
+  if (!SNAPSHOT || !SNAPSHOT.generatedAt) return true;
+  return Date.now() - new Date(SNAPSHOT.generatedAt).getTime() >= SNAPSHOT_STALE_WARN_MS;
 }
 
 // ---------------------------------------------------------------------------
