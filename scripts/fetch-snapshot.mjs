@@ -324,15 +324,65 @@ async function fetchWikiTrending() {
       const data = await res.json();
       const articles = data.items?.[0]?.articles || [];
       const skip = new Set(['Main_Page', 'Special:Search', 'Special:SpecialPages']);
-      return articles
+      const trending = articles
         .filter((a) => !skip.has(a.article) && !a.article.startsWith('Special:'))
         .slice(0, 15)
         .map((a) => ({ title: a.article.replace(/_/g, ' '), views: a.views, link: `https://en.wikipedia.org/wiki/${a.article}` }));
+      await attachWikidataDescriptions(trending);
+      return trending;
     } catch (err) {
       lastErr = err;
     }
   }
   throw lastErr;
+}
+
+// One-line "what is this" context from Wikidata for each trending article —
+// mirrors attachWikidataDescriptions in app.js. Non-fatal: trending still
+// ships without the subtitle if this fails.
+async function attachWikidataDescriptions(articles) {
+  if (!articles.length) return;
+  try {
+    const titles = articles.map((a) => a.title).join('|');
+    const url = `https://www.wikidata.org/w/api.php?action=wbgetentities&sites=enwiki&titles=${encodeURIComponent(titles)}&props=descriptions%7Csitelinks&sitefilter=enwiki&languages=en&format=json&origin=*`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return;
+    const data = await res.json();
+    const byTitle = new Map();
+    Object.values(data.entities || {}).forEach((ent) => {
+      const title = ent.sitelinks?.enwiki?.title;
+      const desc = ent.descriptions?.en?.value;
+      if (title && desc) byTitle.set(title, desc);
+    });
+    articles.forEach((a) => {
+      a.description = byTitle.get(a.title) || null;
+    });
+  } catch {
+    // descriptions are a nice-to-have, not worth failing the fetch over
+  }
+}
+
+// Wikipedia's "featured content" REST API — free, keyless, CORS-enabled.
+// The .image field rotates daily and surfaces a notable Wikimedia Commons
+// image (often classical art, also photography/science/nature).
+async function fetchWikiPOTD() {
+  const d = new Date();
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const url = `https://en.wikipedia.org/api/rest_v1/feed/featured/${y}/${m}/${day}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error(`Wikipedia featured feed ${res.status}`);
+  const data = await res.json();
+  const img = data.image;
+  if (!img) return null;
+  return {
+    title: img.title?.replace(/^File:/, '').replace(/\.\w+$/, '') || 'Picture of the day',
+    thumb: img.thumbnail?.source || img.image?.source,
+    filePage: img.file_page || img.wikipedia || 'https://commons.wikimedia.org/wiki/Main_Page',
+    description: img.description?.text || '',
+    artist: img.artist?.text || '',
+  };
 }
 
 async function fetchTreasuryYields() {
@@ -489,12 +539,13 @@ async function main() {
   const allMarketSymbols = Object.values(MARKET_GROUPS).flatMap((g) => g.symbols.map((s) => s.sym));
   const sparklineSymbols = [...new Set([...allMarketSymbols, ...DEFAULT_PORTFOLIO, ...EXTRA_SNAPSHOT_SYMBOLS])];
 
-  const [feeds, youtube, polymarket, quotes, wikiTrending, treasury, earthquakes, nationalAlerts, serviceStatus, globalDisasters] = await Promise.all([
+  const [feeds, youtube, polymarket, quotes, wikiTrending, wikiPotd, treasury, earthquakes, nationalAlerts, serviceStatus, globalDisasters] = await Promise.all([
     safe('feed bundles', fetchAllBundles),
     safe('youtube', fetchYouTubeBundle),
     safe('polymarket', fetchPolymarket),
     safe('quotes', () => fetchQuotes(sparklineSymbols)),
     safe('wiki trending', fetchWikiTrending),
+    safe('wiki potd', fetchWikiPOTD),
     safe('treasury yields', fetchTreasuryYields),
     safe('earthquakes', fetchEarthquakes),
     safe('national alerts', fetchNationalAlerts),
@@ -539,6 +590,7 @@ async function main() {
     quotes: mergedQuotes,
     sparklines: mergedSparklines,
     wikiTrending: carryForward(previous?.wikiTrending, wikiTrending || []),
+    wikiPotd: carryForward(previous?.wikiPotd, wikiPotd || null),
     treasury: carryForward(previous?.treasury, treasury?.rates?.length ? treasury : null) || { date: null, rates: [] },
     earthquakes: carryForward(previous?.earthquakes, earthquakes || []),
     nationalAlerts: carryForward(previous?.nationalAlerts, nationalAlerts || []),

@@ -366,7 +366,9 @@ export const WIDGET_CATEGORIES = {
   'disaster-map': 'safety',
   'us-alerts-map': 'safety',
   'service-status': 'infra',
+  openinframap: 'infra',
   cryptrack: 'popculture',
+  'wiki-potd': 'trends',
 };
 
 // feed-bundle widgets are categorized uniformly by type above; this bundle

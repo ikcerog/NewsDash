@@ -22,8 +22,17 @@ import {
   toYahooSymbol,
 } from './shared-config.js?v=0.7.5';
 
-const APP_VERSION = '0.7.8';
+const APP_VERSION = '0.8.0';
 const PATCH_NOTES = [
+  {
+    version: '0.8.0',
+    date: '2026-08-28',
+    notes: [
+      'New widget: Infrastructure Map (OpenInfraMap) — embeds their power grid/telecom/pipeline map (OpenStreetMap-sourced), defaulting to the Detroit area.',
+      'New widget: Wikimedia Picture of the Day — Wikipedia\'s daily featured-image feed. Not exclusively classical art (it rotates through photography, science, and nature too), but it\'s the closest free/keyless/live equivalent and often does land on notable Commons artwork.',
+      'Trending on Wikipedia now shows a one-line Wikidata description under each article (e.g. "American actress") for quick context on what\'s actually trending, via a single batched, free, keyless Wikidata lookup.',
+    ],
+  },
   {
     version: '0.7.8',
     date: '2026-08-28',
@@ -914,7 +923,7 @@ async function fetchWikiTrending() {
         const data = await res.json();
         const articles = data.items?.[0]?.articles || [];
         const skip = new Set(['Main_Page', 'Special:Search', 'Special:SpecialPages']);
-        return articles
+        const trending = articles
           .filter((a) => !skip.has(a.article) && !a.article.startsWith('Special:'))
           .slice(0, 15)
           .map((a) => ({
@@ -922,11 +931,70 @@ async function fetchWikiTrending() {
             views: a.views,
             link: `https://en.wikipedia.org/wiki/${a.article}`,
           }));
+        await attachWikidataDescriptions(trending);
+        return trending;
       } catch (err) {
         lastErr = err;
       }
     }
     throw lastErr;
+  });
+}
+
+// One-line "what is this" context from Wikidata for each trending article —
+// e.g. "Foo Bar" -> "American actress" — via a single batched call to the
+// MediaWiki action API (free, keyless; origin=* opts into anonymous CORS,
+// the same pattern Wikidata/Wikipedia's own API sandbox recommends).
+// Non-fatal: trending still renders fine (just without the subtitle) if
+// this fails or times out.
+async function attachWikidataDescriptions(articles) {
+  if (!articles.length) return;
+  try {
+    const titles = articles.map((a) => a.title).join('|');
+    const url = `https://www.wikidata.org/w/api.php?action=wbgetentities&sites=enwiki&titles=${encodeURIComponent(titles)}&props=descriptions%7Csitelinks&sitefilter=enwiki&languages=en&format=json&origin=*`;
+    const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return;
+    const data = await res.json();
+    const byTitle = new Map();
+    Object.values(data.entities || {}).forEach((ent) => {
+      const title = ent.sitelinks?.enwiki?.title;
+      const desc = ent.descriptions?.en?.value;
+      if (title && desc) byTitle.set(title, desc);
+    });
+    articles.forEach((a) => {
+      a.description = byTitle.get(a.title) || null;
+    });
+  } catch {
+    // descriptions are a nice-to-have, not worth failing the widget over
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wikimedia Picture of the Day — Wikipedia's "featured content" REST API is
+// free, keyless, and CORS-enabled; the .image field rotates daily and often
+// (not always — it also covers photography/science/nature) surfaces
+// classical art and other notable images from Wikimedia Commons.
+// ---------------------------------------------------------------------------
+async function fetchWikiPOTD() {
+  if (snapshotFresh() && SNAPSHOT.wikiPotd) return SNAPSHOT.wikiPotd;
+  return withCache('wiki-potd', 24 * 60 * 60 * 1000, async () => {
+    const d = new Date();
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    const url = `https://en.wikipedia.org/api/rest_v1/feed/featured/${y}/${m}/${day}`;
+    const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
+    if (!res.ok) throw new Error(`Wikipedia featured feed ${res.status}`);
+    const data = await res.json();
+    const img = data.image;
+    if (!img) return null;
+    return {
+      title: img.title?.replace(/^File:/, '').replace(/\.\w+$/, '') || 'Picture of the day',
+      thumb: img.thumbnail?.source || img.image?.source,
+      filePage: img.file_page || img.wikipedia || 'https://commons.wikimedia.org/wiki/Main_Page',
+      description: img.description?.text || '',
+      artist: img.artist?.text || '',
+    };
   });
 }
 
@@ -1149,6 +1217,7 @@ function widgetTitle(widget) {
   if (widget.type === 'portfolio') return 'Stock Portfolio';
   if (widget.type === 'markets-overview') return 'Markets Overview';
   if (widget.type === 'wiki-trending') return 'Trending on Wikipedia';
+  if (widget.type === 'wiki-potd') return 'Wikimedia Picture of the Day';
   if (widget.type === 'bonds') return 'Treasury Yields';
   if (widget.type === 'earthquakes') return 'Significant Earthquakes';
   if (widget.type === 'local-alerts') return 'Local Weather Alerts';
@@ -1157,6 +1226,7 @@ function widgetTitle(widget) {
   if (widget.type === 'service-status') return 'Service Status';
   if (widget.type === 'cryptrack') return 'CrypTrack';
   if (widget.type === 'movers') return 'Big Movers';
+  if (widget.type === 'openinframap') return 'Infrastructure Map';
   return 'Widget';
 }
 
@@ -1168,6 +1238,7 @@ function widgetIcon(widget) {
     portfolio: '💼',
     'markets-overview': '📈',
     'wiki-trending': '📚',
+    'wiki-potd': '🖼️',
     bonds: '🏛️',
     earthquakes: '🌎',
     'local-alerts': '🚨',
@@ -1176,6 +1247,7 @@ function widgetIcon(widget) {
     'service-status': '🟢',
     cryptrack: '🛸',
     movers: '🚀',
+    openinframap: '🔌',
   }[widget.type] || '▫';
 }
 
@@ -1414,10 +1486,24 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
       div.className = 'feed-item';
       div.innerHTML = `
         <a href="${escapeAttr(a.link)}" target="_blank" rel="noopener noreferrer">#${i + 1} ${escapeHtml(a.title)}</a>
-        <div class="meta">${a.views.toLocaleString()} views</div>
+        <div class="meta">${a.views.toLocaleString()} views${a.description ? ` · ${escapeHtml(a.description)}` : ''}</div>
       `;
       body.appendChild(div);
     });
+  } else if (widget.type === 'wiki-potd') {
+    const potd = await fetchWikiPOTD();
+    body.innerHTML = !potd
+      ? '<div class="empty-state">No picture of the day available.</div>'
+      : `
+        <a href="${escapeAttr(potd.filePage)}" target="_blank" rel="noopener noreferrer">
+          <img class="potd-image" src="${escapeAttr(potd.thumb)}" alt="${escapeAttr(potd.title)}" loading="lazy" />
+        </a>
+        <div class="potd-caption">
+          <div class="potd-title">${escapeHtml(potd.title)}</div>
+          ${potd.artist ? `<div class="meta">${escapeHtml(potd.artist)}</div>` : ''}
+          ${potd.description ? `<p>${escapeHtml(potd.description)}</p>` : ''}
+        </div>
+      `;
   } else if (widget.type === 'bonds') {
     const { date, rates } = await fetchTreasuryYields();
     body.innerHTML = '';
@@ -1559,6 +1645,22 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
       <div class="outbound-row">
         <span class="meta">Live Bigfoot/UFO sightings map &amp; charts</span>
         <a class="btn btn-primary outbound-btn" href="https://ikcerog.github.io/cryptrack/" target="_blank" rel="noopener noreferrer">Open full site ↗</a>
+      </div>
+    `;
+  } else if (widget.type === 'openinframap') {
+    // Centered on Detroit by default — OpenInfraMap has no API to speak of
+    // (it's rendered from vector tiles, not JSON), so this embeds their own
+    // map the same way the CrypTrack widget embeds ikcerog.github.io/cryptrack.
+    // If OpenInfraMap ever sets X-Frame-Options/CSP to block framing, the
+    // iframe just renders blank — the outbound link below still works either way.
+    const src = 'https://openinframap.org/#9.49/42.3076/-83.1901';
+    body.innerHTML = `
+      <iframe class="${focus ? 'widget-iframe widget-iframe-large' : 'widget-iframe'}"
+        src="${src}" loading="lazy"
+        title="OpenInfraMap — power, telecom &amp; pipeline infrastructure"></iframe>
+      <div class="outbound-row">
+        <span class="meta">Power grid, telecom &amp; pipeline infrastructure (OpenStreetMap data)</span>
+        <a class="btn btn-primary outbound-btn" href="${src}" target="_blank" rel="noopener noreferrer">Open full map ↗</a>
       </div>
     `;
   }
