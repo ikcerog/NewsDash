@@ -22,8 +22,15 @@ import {
   toYahooSymbol,
 } from './shared-config.js?v=0.7.5';
 
-const APP_VERSION = '0.8.0';
+const APP_VERSION = '0.8.1';
 const PATCH_NOTES = [
+  {
+    version: '0.8.1',
+    date: '2026-08-28',
+    notes: [
+      'Local Weather Alerts now also shows a multi-day forecast strip (via the same free NWS API) alongside any active alerts — most useful exactly when there are no alerts to show, since an empty "no active alerts" box wasn\'t saying much on its own.',
+    ],
+  },
   {
     version: '0.8.0',
     date: '2026-08-28',
@@ -1094,6 +1101,39 @@ async function fetchLocalAlerts(zip) {
   });
 }
 
+// Same free/keyless NWS API as the alerts above, one extra hop: /points
+// resolves a lat/lon to its forecast office + gridpoint, which is where the
+// actual multi-day forecast lives. Shown alongside alerts (most useful
+// exactly when there are none — an empty alerts list on its own isn't very
+// informative) rather than only as a fallback.
+async function fetchLocalForecast(zip) {
+  const loc = await geocodeZip(zip);
+  return withCache(`forecast:${zip}`, 30 * 60 * 1000, async () => {
+    const pointRes = await fetch(`https://api.weather.gov/points/${loc.lat},${loc.lon}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(9000),
+    });
+    if (!pointRes.ok) throw new Error(`NWS ${pointRes.status}`);
+    const pointData = await pointRes.json();
+    const forecastUrl = pointData.properties?.forecast;
+    if (!forecastUrl) throw new Error('No forecast available for this location');
+    const res = await fetch(forecastUrl, { cache: 'no-store', signal: AbortSignal.timeout(9000) });
+    if (!res.ok) throw new Error(`NWS ${res.status}`);
+    const data = await res.json();
+    const periods = data.properties?.periods || [];
+    // Daytime periods only, so a compact widget shows one cell per day
+    // instead of a redundant day/night pair — NWS returns ~14 (7 days x
+    // day+night); fall back to the raw periods if isDaytime is missing.
+    const daytime = periods.filter((p) => p.isDaytime);
+    return (daytime.length ? daytime : periods).slice(0, 7).map((p) => ({
+      name: p.name,
+      temperature: p.temperature,
+      temperatureUnit: p.temperatureUnit,
+      shortForecast: p.shortForecast,
+    }));
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Nationwide US weather alerts map — same free NWS API as Local Alerts, but
 // unscoped (no ZIP/point) so it covers the whole country, with polygon
@@ -1785,16 +1825,15 @@ async function refreshLocalAlerts(body, zip) {
   const out = body.querySelector('#localAlertsBody');
   out.innerHTML = '<div class="loading-state">Loading…</div>';
   try {
-    const { location, alerts } = await fetchLocalAlerts(zip);
-    if (!alerts.length) {
-      out.innerHTML = `<div class="empty-state">No active alerts for ${escapeHtml(location)}.</div>`;
-      return;
-    }
+    const [{ location, alerts }, forecast] = await Promise.all([
+      fetchLocalAlerts(zip),
+      fetchLocalForecast(zip).catch(() => null), // bonus content — don't fail the whole widget over it
+    ]);
     out.innerHTML = '';
     const label = document.createElement('div');
     label.className = 'meta';
     label.style.marginBottom = '0.4rem';
-    label.textContent = `Active alerts for ${location}`;
+    label.textContent = alerts.length ? `Active alerts for ${location}` : `No active alerts for ${location}`;
     out.appendChild(label);
     alerts.forEach((a) => {
       const div = document.createElement('div');
@@ -1805,9 +1844,26 @@ async function refreshLocalAlerts(body, zip) {
       `;
       out.appendChild(div);
     });
+    if (forecast?.length) out.appendChild(renderForecastStrip(forecast));
   } catch (err) {
     out.innerHTML = `<div class="error-state">${escapeHtml(err.message)}</div>`;
   }
+}
+
+function renderForecastStrip(periods) {
+  const wrap = document.createElement('div');
+  wrap.className = 'forecast-strip';
+  periods.forEach((p) => {
+    const cell = document.createElement('div');
+    cell.className = 'forecast-cell';
+    cell.innerHTML = `
+      <div class="forecast-day">${escapeHtml(p.name)}</div>
+      <div class="forecast-temp">${p.temperature}°${escapeHtml(p.temperatureUnit)}</div>
+      <div class="forecast-desc">${escapeHtml(p.shortForecast)}</div>
+    `;
+    wrap.appendChild(cell);
+  });
+  return wrap;
 }
 
 async function renderMarketsOverview() {
