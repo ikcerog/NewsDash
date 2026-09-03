@@ -20,10 +20,17 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.8.7';
+} from './shared-config.js?v=0.8.8';
 
-const APP_VERSION = '0.8.7';
+const APP_VERSION = '0.8.8';
 const PATCH_NOTES = [
+  {
+    version: '0.8.8',
+    date: '2026-08-28',
+    notes: [
+      'Wikimedia Picture of the Day now has ‹ › chevrons at the bottom-right of the caption to page back through previous days\' featured pictures (and forward again toward today). Older days are always a live fetch — the snapshot only ever holds today\'s picture — so paging is a bit slower than the initial load.',
+    ],
+  },
   {
     version: '0.8.7',
     date: '2026-08-28',
@@ -1024,10 +1031,13 @@ async function attachWikidataDescriptions(articles) {
 // (not always — it also covers photography/science/nature) surfaces
 // classical art and other notable images from Wikimedia Commons.
 // ---------------------------------------------------------------------------
-async function fetchWikiPOTD() {
-  if (snapshotFresh() && SNAPSHOT.wikiPotd) return SNAPSHOT.wikiPotd;
-  return withCache('wiki-potd', 24 * 60 * 60 * 1000, async () => {
-    const d = new Date();
+// daysAgo=0 is "today" and prefers the snapshot; any other offset is always
+// a live fetch (the snapshot only ever holds today's picture) so the
+// chevron nav in the widget can page back through past days.
+async function fetchWikiPOTD(daysAgo = 0) {
+  if (daysAgo === 0 && snapshotFresh() && SNAPSHOT.wikiPotd) return SNAPSHOT.wikiPotd;
+  return withCache(`wiki-potd:${daysAgo}`, 24 * 60 * 60 * 1000, async () => {
+    const d = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
     const y = d.getUTCFullYear();
     const m = String(d.getUTCMonth() + 1).padStart(2, '0');
     const day = String(d.getUTCDate()).padStart(2, '0');
@@ -1043,9 +1053,15 @@ async function fetchWikiPOTD() {
       filePage: img.file_page || img.wikipedia || 'https://commons.wikimedia.org/wiki/Main_Page',
       description: img.description?.text || '',
       artist: img.artist?.text || '',
+      dateLabel: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
     };
   });
 }
+
+// Per-widget "how many days back" state for the POTD chevron nav — not
+// persisted, resets to today on reload. Keyed by widget.id so multiple
+// POTD widgets (unlikely, but possible) don't share position.
+const potdOffsets = new Map();
 
 // ---------------------------------------------------------------------------
 // US Treasury daily par yield curve — free, keyless, no CORS headers so
@@ -1583,10 +1599,26 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
       body.appendChild(div);
     });
   } else if (widget.type === 'wiki-potd') {
-    const potd = await fetchWikiPOTD();
-    body.innerHTML = !potd
-      ? '<div class="empty-state">No picture of the day available.</div>'
-      : `
+    const offset = potdOffsets.get(widget.id) || 0;
+    const navHtml = `
+      <div class="potd-nav">
+        <button class="potd-nav-btn" data-dir="prev" title="Previous day">‹</button>
+        <button class="potd-nav-btn" data-dir="next" title="Next day" ${offset === 0 ? 'disabled' : ''}>›</button>
+      </div>
+    `;
+    let potd = null;
+    let failed = false;
+    try {
+      potd = await fetchWikiPOTD(offset);
+    } catch {
+      failed = true;
+    }
+    if (failed) {
+      body.innerHTML = `<div class="error-state">Couldn't load the picture for this day.</div>${navHtml}`;
+    } else if (!potd) {
+      body.innerHTML = `<div class="empty-state">No picture of the day available.</div>${navHtml}`;
+    } else {
+      body.innerHTML = `
         <a href="${escapeAttr(potd.filePage)}" target="_blank" rel="noopener noreferrer">
           <img class="potd-image" src="${escapeAttr(potd.thumb)}" alt="${escapeAttr(potd.title)}" loading="lazy" />
         </a>
@@ -1594,8 +1626,19 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
           <div class="potd-title">${escapeHtml(potd.title)}</div>
           ${potd.artist ? `<div class="meta">${escapeHtml(potd.artist)}</div>` : ''}
           ${potd.description ? `<p>${escapeHtml(potd.description)}</p>` : ''}
+          ${navHtml}
         </div>
       `;
+    }
+    body.querySelector('[data-dir="prev"]')?.addEventListener('click', () => {
+      potdOffsets.set(widget.id, offset + 1);
+      renderWidgetInto(widget, body, { focus });
+    });
+    body.querySelector('[data-dir="next"]')?.addEventListener('click', () => {
+      if (offset === 0) return;
+      potdOffsets.set(widget.id, offset - 1);
+      renderWidgetInto(widget, body, { focus });
+    });
   } else if (widget.type === 'bonds') {
     const { date, rates } = await fetchTreasuryYields();
     body.innerHTML = '';
