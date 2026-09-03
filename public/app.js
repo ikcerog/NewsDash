@@ -20,10 +20,17 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.8.8';
+} from './shared-config.js?v=0.8.9';
 
-const APP_VERSION = '0.8.8';
+const APP_VERSION = '0.8.9';
 const PATCH_NOTES = [
+  {
+    version: '0.8.9',
+    date: '2026-08-28',
+    notes: [
+      'New widget: Sectors — the 11 S&P sector ETFs (Technology, Financials, Energy, etc.), ranked best-to-worst performing. The data was already being fetched for Markets Overview, just not broken out on its own. Defaults to double-width since a 2-column layout reads much better with 11 rows than a single long list (toggle back to single-width anytime with the widget\'s own ⬌ button).',
+    ],
+  },
   {
     version: '0.8.8',
     date: '2026-08-28',
@@ -1324,6 +1331,7 @@ function widgetTitle(widget) {
   if (widget.type === 'polymarket') return widget.config.category ? `Polymarket · ${widget.config.category}` : 'Polymarket · All';
   if (widget.type === 'portfolio') return 'Stock Portfolio';
   if (widget.type === 'markets-overview') return 'Markets Overview';
+  if (widget.type === 'sectors') return 'Sectors';
   if (widget.type === 'wiki-trending') return 'Trending on Wikipedia';
   if (widget.type === 'wiki-potd') return 'Wikimedia Picture of the Day';
   if (widget.type === 'bonds') return 'Treasury Yields';
@@ -1345,6 +1353,7 @@ function widgetIcon(widget) {
     polymarket: '📊',
     portfolio: '💼',
     'markets-overview': '📈',
+    sectors: '🏭',
     'wiki-trending': '📚',
     'wiki-potd': '🖼️',
     bonds: '🏛️',
@@ -1585,6 +1594,35 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
   } else if (widget.type === 'markets-overview') {
     body.innerHTML = '';
     body.appendChild(await renderMarketsOverview());
+  } else if (widget.type === 'sectors') {
+    const group = MARKET_GROUPS.sectors;
+    const rows = await fetchQuotesRaw(group.symbols.map((s) => s.sym));
+    const bySymbol = Object.fromEntries(rows.map((r) => [r.symbol, r]));
+    const items = group.symbols.map((s) => {
+      const q = bySymbol[normalizeStooqSymbol(s.sym).toUpperCase()];
+      if (!q || isNaN(q.close)) return { name: s.name, ok: false };
+      const chg = q.close - q.open;
+      return { name: s.name, ok: true, pct: q.open ? (chg / q.open) * 100 : 0 };
+    });
+    // Best-performing sector first — the whole point of a sectors widget is
+    // seeing what's leading/lagging at a glance, not just an alphabetical list.
+    items.sort((a, b) => b.ok - a.ok || (b.ok ? b.pct - a.pct : 0));
+    body.innerHTML = '';
+    const list = document.createElement('div');
+    list.className = 'sectors-list';
+    items.forEach((it) => {
+      const row = document.createElement('div');
+      row.className = 'sector-row';
+      if (it.ok) {
+        const cls = it.pct >= 0 ? 'pos' : 'neg';
+        const arrow = it.pct >= 0 ? '▲' : '▼';
+        row.innerHTML = `<span class="sector-name">${escapeHtml(it.name)}</span><span class="${cls}">${arrow} ${it.pct >= 0 ? '+' : ''}${it.pct.toFixed(2)}%</span>`;
+      } else {
+        row.innerHTML = `<span class="sector-name">${escapeHtml(it.name)}</span><span class="meta">n/a</span>`;
+      }
+      list.appendChild(row);
+    });
+    body.appendChild(list);
   } else if (widget.type === 'wiki-trending') {
     const articles = await fetchWikiTrending();
     body.innerHTML = '';
@@ -2290,7 +2328,11 @@ document.getElementById('confirmAddWidget').addEventListener('click', () => {
       .filter(Boolean);
     if (syms.length) state.portfolio = [...new Set([...state.portfolio, ...syms])];
   }
-  state.widgets.push({ id: uid(), type, config });
+  // Sectors reads noticeably better as a double-width widget (11 sectors
+  // split across two columns instead of one long list) — default it wide,
+  // still toggleable back to single-width via the widget's own ⬌ button.
+  const wide = type === 'sectors' ? true : undefined;
+  state.widgets.push({ id: uid(), type, config, ...(wide ? { wide } : {}) });
   saveState();
   renderGrid();
   closeModal('addWidgetModal');

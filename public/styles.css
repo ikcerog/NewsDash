@@ -628,6 +628,21 @@ body.sidebar-collapsed .sidebar-feeds-section { display: none; }
 .potd-nav-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
 .potd-nav-btn:disabled { opacity: 0.35; cursor: default; }
 
+/* column-width (not column-count) lets this collapse to 1 column when the
+   widget is narrow and spread to 2 when it's wide (double-width), without
+   any JS or container queries — the whole point of the ⬌ wide toggle here. */
+.sectors-list { column-width: 150px; column-gap: 1.5rem; }
+.sector-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+  font-size: 0.9rem;
+  break-inside: avoid;
+}
+.sector-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .forecast-strip {
   display: flex;
   gap: 0.5rem;

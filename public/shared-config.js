@@ -364,6 +364,7 @@ export const WIDGET_CATEGORIES = {
   'markets-overview': 'markets',
   bonds: 'markets',
   movers: 'markets',
+  sectors: 'markets',
   'wiki-trending': 'trends',
   earthquakes: 'safety',
   'local-alerts': 'safety',
