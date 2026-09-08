@@ -9,7 +9,19 @@ import Parser from 'rss-parser';
 import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FEED_BUNDLES, MARKET_GROUPS, DEFAULT_PORTFOLIO, EXTRA_SNAPSHOT_SYMBOLS, STATUS_SERVICES, YOUTUBE_CHANNELS, normalizeStooqSymbol, toYahooSymbol } from '../public/shared-config.js';
+import {
+  FEED_BUNDLES,
+  MARKET_GROUPS,
+  DEFAULT_PORTFOLIO,
+  EXTRA_SNAPSHOT_SYMBOLS,
+  STATUS_SERVICES,
+  YOUTUBE_CHANNELS,
+  WOW_REGION,
+  WOW_REALM_SLUG,
+  WOW_ITEM_WATCHLIST,
+  normalizeStooqSymbol,
+  toYahooSymbol,
+} from '../public/shared-config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = path.join(__dirname, '../public/data/snapshot.json');
@@ -494,6 +506,102 @@ async function fetchGlobalDisasters() {
 }
 
 // ---------------------------------------------------------------------------
+// Battle.net Game Data API (WoW Auction House) — the one source in this file
+// that needs a secret. client_credentials OAuth (no player login involved,
+// just app-to-app auth for public game data), so this only runs server-side;
+// the client secret must never reach public/. Requires BLIZZARD_CLIENT_ID /
+// BLIZZARD_CLIENT_SECRET as GitHub Actions repo secrets.
+// ---------------------------------------------------------------------------
+async function getBattleNetToken() {
+  const id = process.env.BLIZZARD_CLIENT_ID;
+  const secret = process.env.BLIZZARD_CLIENT_SECRET;
+  if (!id || !secret) throw new Error('BLIZZARD_CLIENT_ID/BLIZZARD_CLIENT_SECRET not set');
+  const res = await fetch('https://oauth.battle.net/token', {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${id}:${secret}`).toString('base64')}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: 'grant_type=client_credentials',
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`Battle.net OAuth ${res.status}`);
+  const data = await res.json();
+  return data.access_token;
+}
+
+// Auction House endpoints return raw item IDs with no names and can hold
+// tens of thousands of listings — pull only the items in WOW_ITEM_WATCHLIST
+// (see shared-config.js) rather than storing/parsing the whole dump.
+function pickWatchedItems(auctions, sourceLabel) {
+  if (!WOW_ITEM_WATCHLIST.length) return [];
+  const watched = new Map(WOW_ITEM_WATCHLIST.map((w) => [w.id, w.name]));
+  const best = new Map(); // itemId -> { minPrice, quantity }
+  for (const a of auctions) {
+    const itemId = a.item?.id;
+    if (!watched.has(itemId)) continue;
+    // Commodities have unit_price; individual (non-commodity) auctions have
+    // buyout (or bid, if there's no buyout option) — normalize to one price.
+    const price = a.unit_price ?? a.buyout ?? a.bid;
+    if (price == null) continue;
+    const prev = best.get(itemId);
+    if (!prev || price < prev.minPrice) {
+      best.set(itemId, { minPrice: price, quantity: (prev?.quantity || 0) + (a.quantity || 1) });
+    } else {
+      prev.quantity += a.quantity || 1;
+    }
+  }
+  return [...best.entries()].map(([itemId, v]) => ({
+    id: itemId,
+    name: watched.get(itemId),
+    minPriceGold: Math.floor(v.minPrice / 10000),
+    quantity: v.quantity,
+    source: sourceLabel,
+  }));
+}
+
+async function fetchWowAuctions() {
+  if (!WOW_ITEM_WATCHLIST.length) throw new Error('WOW_ITEM_WATCHLIST is empty — nothing to fetch');
+  const token = await getBattleNetToken();
+  const authHeader = { Authorization: `Bearer ${token}` };
+  const host = `https://${WOW_REGION}.api.blizzard.com`;
+
+  // Resolve the realm slug to its connected-realm ID (auctions are keyed by
+  // connected-realm, which can group several small realms together).
+  const realmRes = await fetch(`${host}/data/wow/realm/${WOW_REALM_SLUG}?namespace=dynamic-${WOW_REGION}&locale=en_US`, {
+    headers: authHeader,
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!realmRes.ok) throw new Error(`WoW realm lookup ${realmRes.status}`);
+  const realmData = await realmRes.json();
+  const connectedRealmHref = realmData.connected_realm?.href;
+  const connectedRealmId = connectedRealmHref?.match(/connected-realm\/(\d+)/)?.[1];
+  if (!connectedRealmId) throw new Error('Could not resolve connected-realm ID');
+
+  const [commoditiesRes, realmAuctionsRes] = await Promise.allSettled([
+    fetch(`${host}/data/wow/auctions/commodities?namespace=dynamic-${WOW_REGION}&locale=en_US`, {
+      headers: authHeader,
+      signal: AbortSignal.timeout(30000),
+    }),
+    fetch(`${host}/data/wow/connected-realm/${connectedRealmId}/auctions?namespace=dynamic-${WOW_REGION}&locale=en_US`, {
+      headers: authHeader,
+      signal: AbortSignal.timeout(30000),
+    }),
+  ]);
+
+  const items = [];
+  if (commoditiesRes.status === 'fulfilled' && commoditiesRes.value.ok) {
+    const data = await commoditiesRes.value.json();
+    items.push(...pickWatchedItems(data.auctions || [], 'Commodity (region)'));
+  }
+  if (realmAuctionsRes.status === 'fulfilled' && realmAuctionsRes.value.ok) {
+    const data = await realmAuctionsRes.value.json();
+    items.push(...pickWatchedItems(data.auctions || [], WOW_REALM_SLUG));
+  }
+  return { realm: WOW_REALM_SLUG, region: WOW_REGION.toUpperCase(), items };
+}
+
+// ---------------------------------------------------------------------------
 // Carry-forward: a single flaky cycle (a proxy hiccup, a source
 // rate-limiting the runner's IP, a transient timeout) shouldn't blank out a
 // widget that had perfectly good data 20-30 minutes ago. Load the snapshot
@@ -552,7 +660,7 @@ async function main() {
   const allMarketSymbols = Object.values(MARKET_GROUPS).flatMap((g) => g.symbols.map((s) => s.sym));
   const sparklineSymbols = [...new Set([...allMarketSymbols, ...DEFAULT_PORTFOLIO, ...EXTRA_SNAPSHOT_SYMBOLS])];
 
-  const [feeds, youtube, polymarket, quotes, wikiTrending, wikiPotd, treasury, earthquakes, nationalAlerts, serviceStatus, globalDisasters] = await Promise.all([
+  const [feeds, youtube, polymarket, quotes, wikiTrending, wikiPotd, treasury, earthquakes, nationalAlerts, serviceStatus, globalDisasters, wowAuctions] = await Promise.all([
     safe('feed bundles', fetchAllBundles),
     safe('youtube', fetchYouTubeBundle),
     safe('polymarket', fetchPolymarket),
@@ -564,6 +672,7 @@ async function main() {
     safe('national alerts', fetchNationalAlerts),
     safe('service status', fetchServiceStatus),
     safe('global disasters', fetchGlobalDisasters),
+    safe('wow auctions', fetchWowAuctions),
   ]);
   const feedsWithYoutube = { ...(feeds || {}) };
   if (youtube) feedsWithYoutube.youtube = youtube;
@@ -609,6 +718,7 @@ async function main() {
     nationalAlerts: carryForward(previous?.nationalAlerts, nationalAlerts || []),
     serviceStatus: carryForward(previous?.serviceStatus, serviceStatus || []),
     globalDisasters: carryForward(previous?.globalDisasters, globalDisasters || []),
+    wowAuctions: carryForward(previous?.wowAuctions, wowAuctions || null),
   };
 
   await mkdir(path.dirname(OUT_PATH), { recursive: true });

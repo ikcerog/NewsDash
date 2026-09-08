@@ -52,6 +52,9 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Fetch snapshot
+        env:
+          BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
+          BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
         run: node scripts/fetch-snapshot.mjs
 
       - name: Commit and push if changed

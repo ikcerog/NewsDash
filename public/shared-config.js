@@ -355,6 +355,26 @@ export const STATUS_SERVICES = [
   { name: 'Slack', url: 'https://slack-status.com/api/v2.0.0/current' },
 ];
 
+// Battle.net Game Data API (WoW Auction House). Requires a client_credentials
+// OAuth app (Client ID/Secret from develop.battle.net) stored as GitHub
+// Actions secrets BLIZZARD_CLIENT_ID / BLIZZARD_CLIENT_SECRET — this is
+// fetched server-side only (scripts/fetch-snapshot.mjs) and never exposed to
+// the browser, so there's no live-fetch fallback for this widget the way
+// most others have one.
+export const WOW_REGION = 'us';
+export const WOW_REALM_SLUG = 'eonar';
+
+// Auction House data is raw item IDs with no names attached, and covers
+// thousands of listings per realm/region — rather than guess at
+// expansion-specific item IDs (they change every expansion and would go
+// stale), populate this yourself: the number in any Wowhead item URL
+// (e.g. wowhead.com/item=190320 -> id 190320) is the item ID. Only items
+// listed here get pulled out of the commodities/realm-auction dumps and
+// shown in the widget — everything else is ignored.
+export const WOW_ITEM_WATCHLIST = [
+  // { id: 190320, name: 'Awakened Order' },
+];
+
 // Widget type -> left-rail module category, used by the sidebar filter.
 export const WIDGET_CATEGORIES = {
   'feed-bundle': 'news',
@@ -374,6 +394,7 @@ export const WIDGET_CATEGORIES = {
   openinframap: 'infra',
   cryptrack: 'popculture',
   'wiki-potd': 'trends',
+  'wow-auctions': 'popculture',
 };
 
 // feed-bundle widgets are categorized uniformly by type above; this bundle

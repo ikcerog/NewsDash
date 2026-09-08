@@ -20,10 +20,17 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.8.9';
+} from './shared-config.js?v=0.9.0';
 
-const APP_VERSION = '0.8.9';
+const APP_VERSION = '0.9.0';
 const PATCH_NOTES = [
+  {
+    version: '0.9.0',
+    date: '2026-08-28',
+    notes: [
+      'New widget: WoW Auction House. First Blizzard Battle.net API integration — client_credentials OAuth against the Game Data API, fetched server-side only (needs a Battle.net client secret, so unlike every other widget there\'s no live-fetch fallback if the snapshot is missing it). Covers region-wide commodities plus the Eonar (US) realm, filtered to a watchlist you populate yourself in shared-config.js (WOW_ITEM_WATCHLIST) — item IDs are expansion-specific and change constantly, so this deliberately doesn\'t ship with any guessed-at defaults.',
+    ],
+  },
   {
     version: '0.8.9',
     date: '2026-08-28',
@@ -1332,6 +1339,7 @@ function widgetTitle(widget) {
   if (widget.type === 'portfolio') return 'Stock Portfolio';
   if (widget.type === 'markets-overview') return 'Markets Overview';
   if (widget.type === 'sectors') return 'Sectors';
+  if (widget.type === 'wow-auctions') return 'WoW Auction House';
   if (widget.type === 'wiki-trending') return 'Trending on Wikipedia';
   if (widget.type === 'wiki-potd') return 'Wikimedia Picture of the Day';
   if (widget.type === 'bonds') return 'Treasury Yields';
@@ -1354,6 +1362,7 @@ function widgetIcon(widget) {
     portfolio: '💼',
     'markets-overview': '📈',
     sectors: '🏭',
+    'wow-auctions': '⚔️',
     'wiki-trending': '📚',
     'wiki-potd': '🖼️',
     bonds: '🏛️',
@@ -1623,6 +1632,32 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
       list.appendChild(row);
     });
     body.appendChild(list);
+  } else if (widget.type === 'wow-auctions') {
+    // Server-side only (needs a Battle.net client_credentials secret) — no
+    // live-fetch fallback is possible here, so this only ever reads
+    // whatever's in the snapshot, stale or not.
+    const data = SNAPSHOT?.wowAuctions;
+    if (!data?.items) {
+      body.innerHTML = `<div class="empty-state">No Auction House data yet — needs BLIZZARD_CLIENT_ID/BLIZZARD_CLIENT_SECRET set as GitHub Actions secrets, and WOW_ITEM_WATCHLIST populated in shared-config.js.</div>`;
+    } else if (!data.items.length) {
+      body.innerHTML = `<div class="empty-state">Connected to the Battle.net API, but none of the watchlist items are currently listed on ${escapeHtml(data.realm)} (${escapeHtml(data.region)}).</div>`;
+    } else {
+      body.innerHTML = `<div class="meta" style="margin-bottom:0.4rem;">${escapeHtml(data.realm)} (${escapeHtml(data.region)})</div>`;
+      const list = document.createElement('div');
+      list.className = 'sectors-list';
+      [...data.items]
+        .sort((a, b) => a.minPriceGold - b.minPriceGold)
+        .forEach((it) => {
+          const row = document.createElement('div');
+          row.className = 'sector-row';
+          row.innerHTML = `
+            <span class="sector-name">${escapeHtml(it.name)}</span>
+            <span>${it.minPriceGold.toLocaleString()}g <span class="meta">(${it.source}, x${it.quantity})</span></span>
+          `;
+          list.appendChild(row);
+        });
+      body.appendChild(list);
+    }
   } else if (widget.type === 'wiki-trending') {
     const articles = await fetchWikiTrending();
     body.innerHTML = '';
