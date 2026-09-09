@@ -20,10 +20,17 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.9.0';
+} from './shared-config.js?v=0.9.1';
 
-const APP_VERSION = '0.9.0';
+const APP_VERSION = '0.9.1';
 const PATCH_NOTES = [
+  {
+    version: '0.9.1',
+    date: '2026-09-09',
+    notes: [
+      'Populated WOW_ITEM_WATCHLIST with a real set of items (consumables, crafting reagents, enchanting mats, augment runes) now that BLIZZARD_CLIENT_ID/BLIZZARD_CLIENT_SECRET are set up — the WoW Auction House widget should start showing real prices on the next snapshot run.',
+    ],
+  },
   {
     version: '0.9.0',
     date: '2026-08-28',

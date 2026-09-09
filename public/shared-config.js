@@ -372,7 +372,33 @@ export const WOW_REALM_SLUG = 'eonar';
 // listed here get pulled out of the commodities/realm-auction dumps and
 // shown in the widget — everything else is ignored.
 export const WOW_ITEM_WATCHLIST = [
-  // { id: 190320, name: 'Awakened Order' },
+  // High-Volume Consumables & Raiding
+  { id: 212241, name: 'Flask of Tempered Swiftness' },
+  { id: 212243, name: 'Flask of Tempered Aggression' },
+  { id: 212265, name: 'Algari Healing Potion' },
+  { id: 212263, name: 'Tempered Potion' },
+  { id: 212271, name: 'Mana Potion of Absolute Purity' },
+
+  // Primary Profession Crafting Reagents
+  { id: 210832, name: 'Bismuth' },
+  { id: 210834, name: 'Ironclaw Ore' },
+  { id: 210800, name: 'Mycobloom' },
+  { id: 210804, name: 'Luredrop' },
+  { id: 210808, name: "Arathor's Spear" },
+  { id: 210812, name: 'Blessing Blossom' },
+  { id: 210931, name: 'Gloomtyde Cloth' },
+  { id: 210933, name: 'Weavercloth' },
+
+  // Enchanting Materials
+  { id: 222588, name: 'Storm Dust' },
+  { id: 222591, name: 'Gleaming Shard' },
+  { id: 222594, name: 'Resonant Crystal' },
+
+  // Augment Runes & High-End Consumables
+  { id: 224572, name: 'Crystallized Augment Rune' },
+  { id: 213773, name: 'Finishing Reagent - Concentration Extract' },
+  { id: 212300, name: 'Hearty Stew' },
+  { id: 210940, name: 'Chitinous Leather' },
 ];
 
 // Widget type -> left-rail module category, used by the sidebar filter.
