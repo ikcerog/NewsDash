@@ -643,6 +643,14 @@ body.sidebar-collapsed .sidebar-feeds-section { display: none; }
 }
 .sector-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* WoW item names vary a lot in length ("Bismuth" vs. "Finishing Reagent -
+   Concentration Extract") so unlike .sectors-list this stays single-column
+   with full-width wrapping names, rather than truncating to fit a tile. */
+.wow-item-row { padding: 0.5rem 0; border-top: 1px solid var(--border); }
+.wow-item-row:first-child { border-top: none; }
+.wow-item-name { font-weight: 500; margin-bottom: 0.15rem; }
+.wow-item-price { display: flex; align-items: baseline; gap: 0.4rem; font-size: 0.9rem; }
+
 .forecast-strip {
   display: flex;
   gap: 0.5rem;

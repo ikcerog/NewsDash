@@ -20,10 +20,17 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.9.2';
+} from './shared-config.js?v=0.9.3';
 
-const APP_VERSION = '0.9.2';
+const APP_VERSION = '0.9.3';
 const PATCH_NOTES = [
+  {
+    version: '0.9.3',
+    date: '2026-09-09',
+    notes: [
+      'Fixed WoW Auction House layout — it was reusing the Sectors widget\'s 2-column tile layout, which truncates names to fit ("Finishing Reagent - Concentration Extract" became "Finishi..."). Item names vary too much in length for that, so it\'s now a single-column list of full line-items: name on its own line, price below it with a 🪙 coin icon, source/quantity shortened to fit ("Region · x173" instead of "(Commodity (region), x173)").',
+    ],
+  },
   {
     version: '0.9.2',
     date: '2026-09-09',
@@ -1665,15 +1672,16 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
     } else {
       body.innerHTML = `<div class="meta" style="margin-bottom:0.4rem;">${escapeHtml(data.realm)} (${escapeHtml(data.region)})</div>`;
       const list = document.createElement('div');
-      list.className = 'sectors-list';
+      list.className = 'wow-item-list';
       [...data.items]
         .sort((a, b) => a.minPriceGold - b.minPriceGold)
         .forEach((it) => {
           const row = document.createElement('div');
-          row.className = 'sector-row';
+          row.className = 'wow-item-row';
+          const source = it.source === 'Commodity (region)' ? 'Region' : it.source;
           row.innerHTML = `
-            <span class="sector-name">${escapeHtml(it.name)}</span>
-            <span>${it.minPriceGold.toLocaleString()}g <span class="meta">(${it.source}, x${it.quantity})</span></span>
+            <div class="wow-item-name">${escapeHtml(it.name)}</div>
+            <div class="wow-item-price">🪙 ${it.minPriceGold.toLocaleString()}g <span class="meta">${escapeHtml(source)} · x${it.quantity.toLocaleString()}</span></div>
           `;
           list.appendChild(row);
         });
