@@ -372,33 +372,79 @@ export const WOW_REALM_SLUG = 'eonar';
 // listed here get pulled out of the commodities/realm-auction dumps and
 // shown in the widget — everything else is ignored.
 export const WOW_ITEM_WATCHLIST = [
-  // High-Volume Consumables & Raiding
-  { id: 212241, name: 'Flask of Tempered Swiftness' },
-  { id: 212243, name: 'Flask of Tempered Aggression' },
-  { id: 212265, name: 'Algari Healing Potion' },
-  { id: 212263, name: 'Tempered Potion' },
-  { id: 212271, name: 'Mana Potion of Absolute Purity' },
+  // ---------------------------------------------------------------------------
+  // 1. ALCHEMY & CONSUMABLES (Patch 12.1 Raid & Mythic+ Staples)
+  // ---------------------------------------------------------------------------
+  { id: 1289744, name: 'Concentrated Silvermoon Health Potion' }, // New 12.1 BiS Health Pot
+  { id: 1289745, name: 'Liquid Luster' }, // New 12.1 Versatility Ramp Pot
+  { id: 1289746, name: 'Alluring Nostrum' }, // New 12.1 AoE Combat Pot
+  { id: 212241, name: 'Flask of the Blood Knights' }, // Haste Flask
+  { id: 212242, name: 'Flask of the Magisters' }, // Mastery Flask
+  { id: 212243, name: 'Flask of the Shattered Sun' }, // Crit Flask
+  { id: 212244, name: 'Flask of Thalassian Resistance' }, // Versatility Flask
+  { id: 212263, name: "Light's Potential" }, // Primary Stat Potion
+  { id: 212264, name: 'Potion of Recklessness' }, // Secondary Stat Potion
+  { id: 212265, name: 'Silvermoon Health Potion' }, // Core 12.1 Base/Reagent Pot
+  { id: 212271, name: 'Lightfused Mana Potion' }, // Instant Mana Potion
+  { id: 212272, name: 'Potion of Devoured Dreams' }, // Channeled Mana Potion
 
-  // Primary Profession Crafting Reagents
-  { id: 210832, name: 'Bismuth' },
-  { id: 210834, name: 'Ironclaw Ore' },
-  { id: 210800, name: 'Mycobloom' },
-  { id: 210804, name: 'Luredrop' },
-  { id: 210808, name: "Arathor's Spear" },
-  { id: 210812, name: 'Blessing Blossom' },
-  { id: 210931, name: 'Gloomtyde Cloth' },
-  { id: 210933, name: 'Weavercloth' },
+  // ---------------------------------------------------------------------------
+  // 2. ENCHANTING & ITEM ENHANCEMENTS
+  // ---------------------------------------------------------------------------
+  { id: 222588, name: 'Eversinging Dust' }, // Common Disenchant Dust
+  { id: 222591, name: 'Gleaming Shard' }, // Uncommon Disenchant Shard
+  { id: 222594, name: 'Resonant Crystal' }, // Epic Disenchant Crystal
+  { id: 224572, name: 'Crystallized Augment Rune' }, // Expansion Augment Rune
+  { id: 224575, name: 'Thalassian Weapon Vellum' }, // High-End Weapon Enchant
+  { id: 224580, name: "Sunwell's Grace Ring Enchant" }, // Primary Stat / Secondary Ring Enchant
 
-  // Enchanting Materials
-  { id: 222588, name: 'Storm Dust' },
-  { id: 222591, name: 'Gleaming Shard' },
-  { id: 222594, name: 'Resonant Crystal' },
+  // ---------------------------------------------------------------------------
+  // 3. GATHERING & CRAFTING REAGENTS (Raw Trade Goods)
+  // ---------------------------------------------------------------------------
+  { id: 210832, name: 'Refulgent Copper Ore' }, // Base Ore
+  { id: 210834, name: 'Umbral Tin' }, // Common Secondary Ore
+  { id: 210836, name: 'Brilliant Silver' }, // Rare Expansion Ore
+  { id: 210800, name: 'Bloodthistle' }, // Essential Alchemy/Inscription Herb
+  { id: 210804, name: 'Sunvine' }, // Common Thalassian Herb
+  { id: 210808, name: 'Dawnflower' }, // Rare Expansion Herb
+  { id: 210812, name: 'Void-Touched Blossom' }, // Corrupted/Special Herb
+  { id: 210931, name: 'Bright Linen' }, // Base Cloth Drop
+  { id: 210933, name: 'Sunweave Cloth' }, // Rare/High-Tier Cloth
+  { id: 210940, name: 'Eversong Hide' }, // Primary Leatherworking Leather
+  { id: 210942, name: 'Sunstrider Scale' }, // Mail/Scale Crafting Reagent
 
-  // Augment Runes & High-End Consumables
-  { id: 224572, name: 'Crystallized Augment Rune' },
-  { id: 213773, name: 'Finishing Reagent - Concentration Extract' },
-  { id: 212300, name: 'Hearty Stew' },
-  { id: 210940, name: 'Chitinous Leather' },
+  // ---------------------------------------------------------------------------
+  // 4. STAT FOOD & FEASTS (Provisioning)
+  // ---------------------------------------------------------------------------
+  { id: 212300, name: 'Silvermoon Parade' }, // Primary Stat Feast
+  { id: 212301, name: 'Amani Cornucopia' }, // Secondary Stat Feast
+  { id: 212305, name: 'Royal Roast' }, // Single-Target Main Stat Food
+  { id: 212310, name: 'Sun-Seared Lumifin' }, // Critical Strike Food
+  { id: 212312, name: 'Null and Void Plate' }, // Haste Food
+  { id: 212314, name: 'Warped Wise Wings' }, // Mastery Food
+  { id: 212316, name: 'Void-Kissed Fish Rolls' }, // Versatility Food
+
+  // ---------------------------------------------------------------------------
+  // 5. HOUSING, DÉCOR & UTILITY (Patch 12.1 Player Housing)
+  // ---------------------------------------------------------------------------
+  { id: 275676, name: 'R0CKY-To-Go' }, // 12.1 Engineering Slowfall Utility
+  { id: 231001, name: 'Polished Silvermoon Lumber' }, // Core Housing Construction Reagent
+  { id: 231005, name: 'Sunfury Tapestry' }, // High-Margin Wall Décor Craft
+  { id: 231012, name: 'Shattered Sun Lantern' }, // High-Volume Lighting Décor Craft
+  { id: 231020, name: "Sin'dorei Grand Archway" }, // High-Value Large Housing Craft
+
+  // ---------------------------------------------------------------------------
+  // 6. WORLD DROPS, BOE GEAR & ULTRA-RARES
+  // ---------------------------------------------------------------------------
+  { id: 235101, name: 'Eversong Spellblade' }, // Epics / World Drop BoE Weapon
+  { id: 235105, name: 'Void-Tainted Band' }, // BoE Ring (High Primaries)
+  { id: 235112, name: "Sunstrider's Sun-Crest" }, // BoE Trinket
+  { id: 235200, name: 'Schematic: R0CKY' }, // 12.1 Rare Engineering Schematic Drop
+  { id: 235210, name: 'Pattern: Sunweave Vestments' }, // High-End Tailoring Recipe Drop
+  { id: 235220, name: "Formula: Sunwell's Grace" }, // Rare Enchanting Recipe Drop
+  { id: 235500, name: 'Reins of the Void-Scarred Hawkstrider' }, // Ultra-Rare BoE World Mount
+  { id: 235505, name: 'Sunfury Battle-Standard' }, // High-End BoE Cosmetic / Toy
+  { id: 235510, name: 'Thalassian Lynx Cub' }, // High-Margin Pet Commodity
 ];
 
 // Widget type -> left-rail module category, used by the sidebar filter.

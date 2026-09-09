@@ -20,10 +20,19 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.9.3';
+} from './shared-config.js?v=0.9.4';
 
-const APP_VERSION = '0.9.3';
+const APP_VERSION = '0.9.4';
 const PATCH_NOTES = [
+  {
+    version: '0.9.4',
+    date: '2026-09-09',
+    notes: [
+      'WoW Auction House: fixed sub-1g items always showing a flat "0g" — the server was flooring to whole gold before it ever reached the client, throwing away silver/copper. Now carries the exact price through and shows 2 decimal places (e.g. "0.43g") whenever the whole-gold amount would be 0.',
+      'Swapped the 🪙 emoji for a CSS-drawn gold coin — guaranteed gold on every platform instead of whatever color that emoji happens to render as in a given font.',
+      'Replaced the tracked-item watchlist with a much larger curated set across consumables, enchanting mats, raw reagents, feasts, and BoE/housing items.',
+    ],
+  },
   {
     version: '0.9.3',
     date: '2026-09-09',
@@ -1674,14 +1683,19 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
       const list = document.createElement('div');
       list.className = 'wow-item-list';
       [...data.items]
-        .sort((a, b) => a.minPriceGold - b.minPriceGold)
+        .sort((a, b) => a.minPriceCopper - b.minPriceCopper)
         .forEach((it) => {
           const row = document.createElement('div');
           row.className = 'wow-item-row';
           const source = it.source === 'Commodity (region)' ? 'Region' : it.source;
+          const gold = it.minPriceCopper / 10000;
+          // Plenty of commodities trade under 1g — flooring to whole gold
+          // would show a useless flat "0g" for all of them, so fall back
+          // to 2 decimal places (gold.silver) whenever that'd happen.
+          const priceLabel = gold >= 1 ? `${Math.floor(gold).toLocaleString()}g` : `${gold.toFixed(2)}g`;
           row.innerHTML = `
             <div class="wow-item-name">${escapeHtml(it.name)}</div>
-            <div class="wow-item-price">🪙 ${it.minPriceGold.toLocaleString()}g <span class="meta">${escapeHtml(source)} · x${it.quantity.toLocaleString()}</span></div>
+            <div class="wow-item-price"><span class="gold-coin"></span> ${priceLabel} <span class="meta">${escapeHtml(source)} · x${it.quantity.toLocaleString()}</span></div>
           `;
           list.appendChild(row);
         });

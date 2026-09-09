@@ -554,7 +554,10 @@ function pickWatchedItems(auctions, sourceLabel) {
   return [...best.entries()].map(([itemId, v]) => ({
     id: itemId,
     name: watched.get(itemId),
-    minPriceGold: Math.floor(v.minPrice / 10000),
+    // Raw copper, not pre-rounded to whole gold — a lot of commodities
+    // trade under 1g, and flooring server-side made every one of them
+    // show as a flat, useless "0g". Let the client decide precision.
+    minPriceCopper: v.minPrice,
     quantity: v.quantity,
     source: sourceLabel,
   }));

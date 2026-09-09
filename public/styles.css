@@ -649,7 +649,18 @@ body.sidebar-collapsed .sidebar-feeds-section { display: none; }
 .wow-item-row { padding: 0.5rem 0; border-top: 1px solid var(--border); }
 .wow-item-row:first-child { border-top: none; }
 .wow-item-name { font-weight: 500; margin-bottom: 0.15rem; }
-.wow-item-price { display: flex; align-items: baseline; gap: 0.4rem; font-size: 0.9rem; }
+.wow-item-price { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
+/* CSS-drawn instead of an emoji glyph so it's guaranteed gold on every
+   platform/font, rather than however that emoji happens to render. */
+.gold-coin {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff3b8, #e8b923 55%, #a8760c 100%);
+  box-shadow: inset 0 0 1px rgba(0, 0, 0, 0.45);
+  flex-shrink: 0;
+}
 
 .forecast-strip {
   display: flex;
