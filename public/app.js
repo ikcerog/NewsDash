@@ -20,10 +20,17 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.9.1';
+} from './shared-config.js?v=0.9.2';
 
-const APP_VERSION = '0.9.1';
+const APP_VERSION = '0.9.2';
 const PATCH_NOTES = [
+  {
+    version: '0.9.2',
+    date: '2026-09-09',
+    notes: [
+      'Fixed the WoW Auction House widget (and anything else relying on a brand-new snapshot field) showing empty/stale right after a fix ships: the snapshot.json fetch relied only on cache:\'no-store\', which stops the browser\'s own cache but does nothing about GitHub Pages\' CDN caching the response at the edge. Added a real per-request cache-buster so every load is guaranteed a fresh fetch, not just a fresh browser-cache check.',
+    ],
+  },
   {
     version: '0.9.1',
     date: '2026-09-09',
@@ -524,7 +531,14 @@ let SNAPSHOT = null;
 
 async function loadSnapshot() {
   try {
-    const res = await fetch('./data/snapshot.json', { cache: 'no-store', signal: AbortSignal.timeout(6000) });
+    // cache: 'no-store' only stops the browser's own local cache — GitHub
+    // Pages' CDN (Fastly) still caches the response at the edge regardless,
+    // and no request option can override that. A real per-request
+    // cache-buster is the only way to guarantee a miss there too (seen in
+    // practice: a widget's brand-new snapshot field stayed invisible for a
+    // while after a fix shipped, because the edge was still serving a
+    // response from just before it).
+    const res = await fetch(`./data/snapshot.json?t=${Date.now()}`, { cache: 'no-store', signal: AbortSignal.timeout(6000) });
     if (res.ok) SNAPSHOT = await res.json();
   } catch (e) {
     console.warn('Snapshot unavailable, falling back to live fetches:', e.message);
