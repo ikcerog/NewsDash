@@ -610,6 +610,7 @@ body.sidebar-collapsed .sidebar-feeds-section { display: none; }
 .outbound-card .btn { margin-top: 0.8rem; }
 
 .potd-image { display: block; width: 100%; height: auto; border-radius: 6px; }
+.screenshot-image { display: block; width: 100%; height: auto; border-radius: 6px; border: 1px solid var(--border); }
 .potd-caption { padding-top: 0.6rem; }
 .potd-title { font-weight: 600; }
 .potd-caption p { margin: 0.3rem 0 0; font-size: 0.85rem; color: var(--text-muted); }

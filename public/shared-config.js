@@ -467,6 +467,8 @@ export const WIDGET_CATEGORIES = {
   cryptrack: 'popculture',
   'wiki-potd': 'trends',
   'wow-auctions': 'popculture',
+  'iss-location': 'science',
+  'website-screenshot': 'popculture',
 };
 
 // feed-bundle widgets are categorized uniformly by type above; this bundle

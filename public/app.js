@@ -20,10 +20,19 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.9.4';
+} from './shared-config.js?v=0.9.5';
 
-const APP_VERSION = '0.9.4';
+const APP_VERSION = '0.9.5';
 const PATCH_NOTES = [
+  {
+    version: '0.9.5',
+    date: '2026-09-10',
+    notes: [
+      'Alphabetized the "+ Add Widget" type dropdown — was in whatever order each widget got added over time, now sorted by label so it\'s actually scannable. New widget types get slotted in alphabetically going forward instead of tacked onto the end.',
+      'New widget: ISS Live Location — plots the space station\'s current position on a map via the free open-notify.org API. Always a live fetch, never cached or snapshotted — the ISS moves ~7.66 km/s, so anything but "right now" is already meaningfully wrong.',
+      'New widget: Website Screenshot — enter a URL, get a screenshot via WordPress\'s free mShots service (substituted in for the freepublicapis.com listing pointed at, which is a directory of other providers rather than an API itself — this sandbox couldn\'t reach it to see which one it wraps). Can serve a placeholder for a few seconds on a URL it hasn\'t captured recently; hitting Snag again usually gets the real capture. The "Open / Save" link opens/downloads depending on the browser — a guaranteed forced download isn\'t reliably possible for a cross-origin image without extra server-side plumbing this app doesn\'t have.',
+    ],
+  },
   {
     version: '0.9.4',
     date: '2026-09-09',
@@ -654,6 +663,22 @@ async function proxiedFetch(url, { direct = true } = {}) {
     CORS_PROXIES.map((build) => () => build(bustUrl)),
     9000
   );
+}
+
+// ---------------------------------------------------------------------------
+// ISS live location — free, keyless, but plain HTTP (not HTTPS) and no CORS
+// headers, so a direct fetch from this HTTPS-served site would be blocked
+// as mixed content before it even got to a CORS check — skip straight to
+// the proxy chain. Never cached/snapshotted: the ISS moves ~7.66 km/s, so
+// a position more than a couple minutes old is already meaningfully wrong.
+async function fetchISSLocation() {
+  const res = await proxiedFetch('http://api.open-notify.org/iss-now.json', { direct: false });
+  const data = await res.json();
+  return {
+    lat: parseFloat(data.iss_position.latitude),
+    lon: parseFloat(data.iss_position.longitude),
+    timestamp: data.timestamp,
+  };
 }
 
 // Not every feed reliably returns items in reverse-chronological order —
@@ -1388,6 +1413,8 @@ function widgetTitle(widget) {
   if (widget.type === 'cryptrack') return 'CrypTrack';
   if (widget.type === 'movers') return 'Big Movers';
   if (widget.type === 'openinframap') return 'Infrastructure Map';
+  if (widget.type === 'iss-location') return 'ISS Live Location';
+  if (widget.type === 'website-screenshot') return 'Website Screenshot';
   return 'Widget';
 }
 
@@ -1411,6 +1438,8 @@ function widgetIcon(widget) {
     cryptrack: '🛸',
     movers: '🚀',
     openinframap: '🔌',
+    'iss-location': '🛰️',
+    'website-screenshot': '📸',
   }[widget.type] || '▫';
 }
 
@@ -1912,6 +1941,25 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
         <a class="btn btn-primary outbound-btn" href="${src}" target="_blank" rel="noopener noreferrer">Open OpenInfraMap ↗</a>
       </div>
     `;
+  } else if (widget.type === 'iss-location') {
+    try {
+      const iss = await fetchISSLocation();
+      body.innerHTML = '';
+      const mapEl = document.createElement('div');
+      mapEl.className = focus ? 'widget-map widget-map-large' : 'widget-map';
+      body.appendChild(mapEl);
+      initLeafletMap(mapEl, [{ lat: iss.lat, lon: iss.lon, label: `ISS — ${iss.lat.toFixed(2)}, ${iss.lon.toFixed(2)}`, radius: 7 }]);
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.style.marginTop = '0.4rem';
+      meta.textContent = `Lat ${iss.lat.toFixed(2)}, Lon ${iss.lon.toFixed(2)} — as of ${new Date(iss.timestamp * 1000).toLocaleTimeString()}`;
+      body.appendChild(meta);
+    } catch (err) {
+      body.innerHTML = '<div class="error-state">Couldn\'t reach the ISS location API right now.</div>';
+    }
+  } else if (widget.type === 'website-screenshot') {
+    body.innerHTML = renderScreenshotShell();
+    wireScreenshotWidget(body);
   }
 }
 
@@ -2000,6 +2048,48 @@ function initLeafletMap(container, points) {
   } else {
     map.fitBounds(L.featureGroup(markers).getBounds().pad(0.2));
   }
+}
+
+// WordPress's mShots — free, keyless, "any URL in, a screenshot out". Used
+// here instead of the freepublicapis.com listing the user pointed at,
+// since that's a directory of other providers rather than an API itself
+// and this sandbox can't reach it to see which one it wraps; mShots is a
+// well-established, genuinely free option that does exactly what was
+// asked. It can serve a placeholder for a few seconds on a URL it hasn't
+// captured recently — hitting Snag again usually gets the real capture.
+function renderScreenshotShell() {
+  return `
+    <div class="portfolio-controls">
+      <input type="text" id="screenshotUrlInput" placeholder="example.com" />
+      <button class="btn btn-primary" id="screenshotGoBtn">Snag</button>
+    </div>
+    <div id="screenshotResult">
+      <div class="empty-state">Enter a URL above and click Snag to grab a screenshot.</div>
+    </div>
+  `;
+}
+
+function wireScreenshotWidget(body) {
+  const input = body.querySelector('#screenshotUrlInput');
+  const btn = body.querySelector('#screenshotGoBtn');
+  const out = body.querySelector('#screenshotResult');
+  const snag = () => {
+    let url = input.value.trim();
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+    const shotUrl = `https://s0.wp.com/mshots/v1/${encodeURIComponent(url)}?w=1000`;
+    out.innerHTML = `
+      <img class="screenshot-image" src="${escapeAttr(shotUrl)}" alt="Screenshot of ${escapeAttr(url)}" loading="lazy" />
+      <div class="outbound-row">
+        <span class="meta">${escapeHtml(url)}</span>
+        <a class="btn outbound-btn" href="${escapeAttr(shotUrl)}" download target="_blank" rel="noopener noreferrer">Open / Save ↓</a>
+      </div>
+    `;
+  };
+  btn.addEventListener('click', snag);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') snag();
+  });
 }
 
 function renderLocalAlertsShell() {
