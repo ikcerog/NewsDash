@@ -20,10 +20,17 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.9.5';
+} from './shared-config.js?v=0.9.6';
 
-const APP_VERSION = '0.9.5';
+const APP_VERSION = '0.9.6';
 const PATCH_NOTES = [
+  {
+    version: '0.9.6',
+    date: '2026-09-15',
+    notes: [
+      'Sectors is now a Finviz-style heatmap: colored, sized blocks instead of a plain list. Block size reflects the magnitude of today\'s move (biggest movers, up or down, get the biggest tiles) rather than market cap, since sector market-cap weightings aren\'t something this app has on hand — still shows what\'s actually moving at a glance, just not weighted the way a real market-cap treemap would be. No charting library added: a small recursive "slice and dice" layout function does the tiling in plain JS/CSS.',
+    ],
+  },
   {
     version: '0.9.5',
     date: '2026-09-10',
@@ -1304,6 +1311,52 @@ function polygonCentroid(geometry) {
 }
 
 // ---------------------------------------------------------------------------
+// Simple "slice and dice" treemap (Finviz-style heatmap block) — no charting
+// library needed for ~11 items. Not a true squarified treemap (which keeps
+// every tile close to square), just a binary recursive split: sort items
+// biggest-value-first, cut the list roughly in half by value, split the
+// current rectangle along whichever axis is longer (so it doesn't produce
+// one long sliver down the side), and recurse into each half. Coordinates
+// are 0-100 (percent of the container), so the caller can size tiles with
+// plain CSS left/top/width/height percentages.
+// ---------------------------------------------------------------------------
+function layoutTreemap(items, x = 0, y = 0, w = 100, h = 100) {
+  if (!items.length) return [];
+  if (items.length === 1) return [{ ...items[0], x, y, w, h }];
+  const total = items.reduce((sum, it) => sum + it.value, 0);
+  let running = 0;
+  let splitIndex = 1;
+  for (let i = 0; i < items.length; i++) {
+    running += items[i].value;
+    if (running >= total / 2) {
+      splitIndex = i + 1;
+      break;
+    }
+  }
+  splitIndex = Math.max(1, Math.min(items.length - 1, splitIndex));
+  const groupA = items.slice(0, splitIndex);
+  const groupB = items.slice(splitIndex);
+  const fracA = groupA.reduce((sum, it) => sum + it.value, 0) / total;
+  if (w >= h) {
+    const wA = w * fracA;
+    return [...layoutTreemap(groupA, x, y, wA, h), ...layoutTreemap(groupB, x + wA, y, w - wA, h)];
+  }
+  const hA = h * fracA;
+  return [...layoutTreemap(groupA, x, y, w, hA), ...layoutTreemap(groupB, x, y + hA, w, h - hA)];
+}
+
+// Finviz-style green/red scale, intensity scaled by magnitude (clamped at
+// +/-3% — most daily sector moves fall well inside that, so it still has
+// room to get more saturated on a genuinely big move instead of maxing out
+// on an ordinary day).
+function pctToHeatColor(pct) {
+  const t = Math.min(Math.abs(pct) / 3, 1);
+  return pct >= 0
+    ? `hsl(140, ${40 + t * 40}%, ${38 - t * 14}%)` // pale to deep green
+    : `hsl(2, ${45 + t * 40}%, ${45 - t * 14}%)`; // pale to deep red
+}
+
+// ---------------------------------------------------------------------------
 // Service status — free, keyless Statuspage.io (Atlassian) v2 summary API,
 // used by hundreds of companies in an identical JSON shape.
 // ---------------------------------------------------------------------------
@@ -1679,25 +1732,43 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
       const chg = q.close - q.open;
       return { name: s.name, ok: true, pct: q.open ? (chg / q.open) * 100 : 0 };
     });
-    // Best-performing sector first — the whole point of a sectors widget is
-    // seeing what's leading/lagging at a glance, not just an alphabetical list.
-    items.sort((a, b) => b.ok - a.ok || (b.ok ? b.pct - a.pct : 0));
     body.innerHTML = '';
-    const list = document.createElement('div');
-    list.className = 'sectors-list';
-    items.forEach((it) => {
-      const row = document.createElement('div');
-      row.className = 'sector-row';
-      if (it.ok) {
-        const cls = it.pct >= 0 ? 'pos' : 'neg';
-        const arrow = it.pct >= 0 ? '▲' : '▼';
-        row.innerHTML = `<span class="sector-name">${escapeHtml(it.name)}</span><span class="${cls}">${arrow} ${it.pct >= 0 ? '+' : ''}${it.pct.toFixed(2)}%</span>`;
-      } else {
-        row.innerHTML = `<span class="sector-name">${escapeHtml(it.name)}</span><span class="meta">n/a</span>`;
+    const okItems = items.filter((it) => it.ok);
+    const failedItems = items.filter((it) => !it.ok);
+    if (!okItems.length) {
+      body.innerHTML = '<div class="error-state">Sector data unavailable right now.</div>';
+    } else {
+      // Block size = magnitude of today's move, not market cap (we don't
+      // have sector weightings on hand) — biggest movers (up or down) get
+      // the biggest tiles, which is still the point of a heatmap: see
+      // what's moving at a glance. Sorted biggest-first so layoutTreemap
+      // produces a sensible arrangement instead of a scattered one.
+      const tiles = okItems
+        .map((it) => ({ ...it, value: Math.max(Math.abs(it.pct), 0.05) }))
+        .sort((a, b) => b.value - a.value);
+      const laidOut = layoutTreemap(tiles);
+      const map = document.createElement('div');
+      map.className = 'sectors-treemap';
+      laidOut.forEach((t) => {
+        const tile = document.createElement('div');
+        tile.className = 'sector-tile';
+        tile.style.left = `${t.x}%`;
+        tile.style.top = `${t.y}%`;
+        tile.style.width = `${t.w}%`;
+        tile.style.height = `${t.h}%`;
+        tile.style.background = pctToHeatColor(t.pct);
+        tile.innerHTML = `<div class="sector-tile-name">${escapeHtml(t.name)}</div><div class="sector-tile-pct">${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(2)}%</div>`;
+        map.appendChild(tile);
+      });
+      body.appendChild(map);
+      if (failedItems.length) {
+        const note = document.createElement('div');
+        note.className = 'meta';
+        note.style.marginTop = '0.4rem';
+        note.textContent = `n/a: ${failedItems.map((it) => it.name).join(', ')}`;
+        body.appendChild(note);
       }
-      list.appendChild(row);
-    });
-    body.appendChild(list);
+    }
   } else if (widget.type === 'wow-auctions') {
     // Server-side only (needs a Battle.net client_credentials secret) — no
     // live-fetch fallback is possible here, so this only ever reads

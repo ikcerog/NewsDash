@@ -629,24 +629,35 @@ body.sidebar-collapsed .sidebar-feeds-section { display: none; }
 .potd-nav-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
 .potd-nav-btn:disabled { opacity: 0.35; cursor: default; }
 
-/* column-width (not column-count) lets this collapse to 1 column when the
-   widget is narrow and spread to 2 when it's wide (double-width), without
-   any JS or container queries — the whole point of the ⬌ wide toggle here. */
-.sectors-list { column-width: 150px; column-gap: 1.5rem; }
-.sector-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.5rem;
-  padding: 0.3rem 0;
-  font-size: 0.9rem;
-  break-inside: avoid;
+/* Finviz-style heatmap block. Fixed aspect-ratio box with tiles positioned
+   by percentage (from layoutTreemap in app.js) — width scales with the
+   widget (1-col or double-width via the ⬌ toggle), height follows from
+   the aspect-ratio, no JS resize-observer needed. */
+.sectors-treemap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border-radius: 6px;
 }
-.sector-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sector-tile {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--bg-widget-header);
+  padding: 0.3rem 0.4rem;
+  overflow: hidden;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.sector-tile-name { font-size: 0.78rem; font-weight: 600; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sector-tile-pct { font-size: 0.85rem; font-weight: 700; margin-top: 0.15rem; }
 
 /* WoW item names vary a lot in length ("Bismuth" vs. "Finishing Reagent -
-   Concentration Extract") so unlike .sectors-list this stays single-column
-   with full-width wrapping names, rather than truncating to fit a tile. */
+   Concentration Extract") so unlike the sectors treemap this stays
+   single-column with full-width wrapping names, not tiled. */
 .wow-item-row { padding: 0.5rem 0; border-top: 1px solid var(--border); }
 .wow-item-row:first-child { border-top: none; }
 .wow-item-name { font-weight: 500; margin-bottom: 0.15rem; }
