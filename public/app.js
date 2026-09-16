@@ -20,10 +20,17 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.9.7';
+} from './shared-config.js?v=0.9.8';
 
-const APP_VERSION = '0.9.7';
+const APP_VERSION = '0.9.8';
 const PATCH_NOTES = [
+  {
+    version: '0.9.8',
+    date: '2026-09-16',
+    notes: [
+      'Sectors heatmap: the strict uniform grid read too much like a spreadsheet, so every tile now spans 1-3 columns and 1-2 rows depending on how big its move is relative to today\'s biggest mover (not just the single top mover as before). Still a real CSS Grid, not free-form positioning — a fine 6-column grid with grid-auto-flow: dense lets the browser pack the varying tile sizes itself.',
+    ],
+  },
   {
     version: '0.9.7',
     date: '2026-09-16',
@@ -1710,24 +1717,21 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
     if (!okItems.length) {
       body.innerHTML = '<div class="error-state">Sector data unavailable right now.</div>';
     } else {
-      // Best-to-worst, like a leaderboard — a strict 3-col grid reads best
-      // with a predictable order, unlike the free-form treemap this
-      // replaced. Only the single biggest mover can ever break the grid
-      // (span 2 cols instead of 1), and only when it's a genuine outlier:
-      // a big move (3%+) AND clearly ahead of the next-biggest mover, not
-      // just "today's top of a bunch of similar-sized moves."
+      // Best-to-worst, like a leaderboard. Still a real CSS Grid (not
+      // free-form absolute positioning), but every tile's *span* scales
+      // with the magnitude of its move relative to today's biggest mover,
+      // so it doesn't read as a flat table of equal-sized cells — a fine
+      // (6-col) grid with grid-auto-flow: dense lets the browser pack the
+      // varying spans itself instead of hand-rolling bin-packing math.
       const sorted = [...okItems].sort((a, b) => b.pct - a.pct);
-      const byMagnitude = [...okItems].sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
-      const top = byMagnitude[0];
-      const runnerUp = byMagnitude[1];
-      const outlierName =
-        top && Math.abs(top.pct) >= 3 && (!runnerUp || Math.abs(top.pct) >= Math.abs(runnerUp.pct) * 1.5) ? top.name : null;
+      const maxAbs = Math.max(...okItems.map((it) => Math.abs(it.pct)), 0.01);
       const grid = document.createElement('div');
       grid.className = 'sectors-grid';
       sorted.forEach((it) => {
+        const ratio = Math.abs(it.pct) / maxAbs;
+        const sizeClass = ratio >= 0.55 ? 'sector-tile-lg' : ratio >= 0.25 ? 'sector-tile-md' : 'sector-tile-sm';
         const tile = document.createElement('div');
-        tile.className = 'sector-tile';
-        if (it.name === outlierName) tile.classList.add('sector-tile-outlier');
+        tile.className = `sector-tile ${sizeClass}`;
         tile.style.background = pctToHeatColor(it.pct);
         tile.innerHTML = `<div class="sector-tile-name">${escapeHtml(it.name)}</div><div class="sector-tile-pct">${it.pct >= 0 ? '+' : ''}${it.pct.toFixed(2)}%</div>`;
         grid.appendChild(tile);

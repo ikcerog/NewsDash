@@ -629,20 +629,23 @@ body.sidebar-collapsed .sidebar-feeds-section { display: none; }
 .potd-nav-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
 .potd-nav-btn:disabled { opacity: 0.35; cursor: default; }
 
-/* Finviz-style heatmap block, as a strict 3-column grid rather than a
-   free-form treemap — reads more predictably. Only .sector-tile-outlier
-   (the single biggest mover, and only when it's a genuine outlier — see
-   the sectors branch of renderWidgetInto) ever breaks the 3-col rule. */
+/* Finviz-style heatmap block — a real CSS Grid (not free-form absolute
+   positioning), but a fine 6-column one with grid-auto-flow: dense so
+   tiles can span multiple cells and the browser packs the gaps itself,
+   instead of every tile being a uniform "spreadsheet cell". Tile span
+   (.sector-tile-sm/md/lg, set in the sectors branch of renderWidgetInto)
+   scales with how big that sector's move is relative to today's biggest. */
 .sectors-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(6, 1fr);
+  grid-auto-rows: 3.2rem;
+  grid-auto-flow: dense;
   gap: 2px;
   border-radius: 6px;
   overflow: hidden;
 }
 .sector-tile {
   box-sizing: border-box;
-  min-height: 4.5rem;
   padding: 0.3rem 0.4rem;
   overflow: hidden;
   color: #fff;
@@ -651,7 +654,11 @@ body.sidebar-collapsed .sidebar-feeds-section { display: none; }
   flex-direction: column;
   justify-content: center;
 }
-.sector-tile-outlier { grid-column: span 2; }
+.sector-tile-sm { grid-column: span 2; grid-row: span 1; }
+.sector-tile-md { grid-column: span 2; grid-row: span 2; }
+.sector-tile-lg { grid-column: span 3; grid-row: span 2; }
+.sector-tile-lg .sector-tile-name { font-size: 0.95rem; }
+.sector-tile-lg .sector-tile-pct { font-size: 1.15rem; }
 .sector-tile-name { font-size: 0.78rem; font-weight: 600; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sector-tile-pct { font-size: 0.85rem; font-weight: 700; margin-top: 0.15rem; }
 
