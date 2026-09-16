@@ -20,10 +20,18 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.9.8';
+} from './shared-config.js?v=0.9.9';
 
-const APP_VERSION = '0.9.8';
+const APP_VERSION = '0.9.9';
 const PATCH_NOTES = [
+  {
+    version: '0.9.9',
+    date: '2026-09-16',
+    notes: [
+      'Sectors heatmap: fixed the gap of uncovered space at the bottom of the widget — the discrete size tiers didn\'t reliably sum to a whole number of grid rows. Back to a proportional treemap layout (continuous sizing, not 3 buckets) for a mathematically guaranteed exact 100% fill, but expressed as real CSS Grid placement (grid-column/row line numbers on a fine 100x100 track grid) rather than free-form absolute positioning.',
+      'Sectors now stretches to match its row\'s height (like CrypTrack already does), instead of shrinking to its own content and leaving blank space below it when a taller sibling is in the same row.',
+    ],
+  },
   {
     version: '0.9.8',
     date: '2026-09-16',
@@ -1324,6 +1332,49 @@ function polygonCentroid(geometry) {
   return { lon: sumLon / coords.length, lat: sumLat / coords.length };
 }
 
+// ---------------------------------------------------------------------------
+// Simple "slice and dice" treemap, in integer grid-line coordinates rather
+// than free-form percentages — the caller renders each result with plain
+// CSS Grid placement (grid-column/row: start / end) on a matching
+// repeat(GRID_SIZE, 1fr) track grid, so this is a real Grid layout, not
+// absolute positioning, while still guaranteeing exact 100% coverage (no
+// gaps, no overlaps) the way a fixed set of size tiers can't: those only
+// fill the area completely when tile spans happen to sum to a whole
+// number of rows, which isn't reliably true for arbitrary data.
+//
+// The zero-gap guarantee comes from rounding at the split point, not at
+// the leaves: each split computes ONE rounded boundary and hands that
+// exact same value to both halves (one half ends there, the other starts
+// there), so there's never a chance for the two halves to disagree by a
+// line. Total area is conserved regardless of rounding since the second
+// half always gets "whatever's left" (w - wA), never its own independent
+// calculation.
+// ---------------------------------------------------------------------------
+function layoutTreemapGrid(items, x = 0, y = 0, w = 100, h = 100) {
+  if (!items.length) return [];
+  if (items.length === 1) return [{ ...items[0], x, y, w, h }];
+  const total = items.reduce((sum, it) => sum + it.value, 0);
+  let running = 0;
+  let splitIndex = 1;
+  for (let i = 0; i < items.length; i++) {
+    running += items[i].value;
+    if (running >= total / 2) {
+      splitIndex = i + 1;
+      break;
+    }
+  }
+  splitIndex = Math.max(1, Math.min(items.length - 1, splitIndex));
+  const groupA = items.slice(0, splitIndex);
+  const groupB = items.slice(splitIndex);
+  const fracA = groupA.reduce((sum, it) => sum + it.value, 0) / total;
+  if (w >= h) {
+    const wA = Math.max(1, Math.min(w - 1, Math.round(w * fracA)));
+    return [...layoutTreemapGrid(groupA, x, y, wA, h), ...layoutTreemapGrid(groupB, x + wA, y, w - wA, h)];
+  }
+  const hA = Math.max(1, Math.min(h - 1, Math.round(h * fracA)));
+  return [...layoutTreemapGrid(groupA, x, y, w, hA), ...layoutTreemapGrid(groupB, x, y + hA, w, h - hA)];
+}
+
 // Finviz-style green/red scale, intensity scaled by magnitude (clamped at
 // +/-3% — most daily sector moves fall well inside that, so it still has
 // room to get more saturated on a genuinely big move instead of maxing out
@@ -1717,23 +1768,26 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
     if (!okItems.length) {
       body.innerHTML = '<div class="error-state">Sector data unavailable right now.</div>';
     } else {
-      // Best-to-worst, like a leaderboard. Still a real CSS Grid (not
-      // free-form absolute positioning), but every tile's *span* scales
-      // with the magnitude of its move relative to today's biggest mover,
-      // so it doesn't read as a flat table of equal-sized cells — a fine
-      // (6-col) grid with grid-auto-flow: dense lets the browser pack the
-      // varying spans itself instead of hand-rolling bin-packing math.
-      const sorted = [...okItems].sort((a, b) => b.pct - a.pct);
-      const maxAbs = Math.max(...okItems.map((it) => Math.abs(it.pct)), 0.01);
+      // Biggest-move-first for the layout (so layoutTreemapGrid produces a
+      // sensible arrangement), rendered via real CSS Grid line placement —
+      // grid-column/row start/end, not free-form absolute x/y/w/h — on a
+      // fine 100x100 track grid, so every tile still snaps to grid lines.
+      const byMagnitude = [...okItems].sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
+      const tiles = byMagnitude.map((it) => ({ ...it, value: Math.max(Math.abs(it.pct), 0.05) }));
+      const laidOut = layoutTreemapGrid(tiles);
+      const totalArea = 100 * 100;
       const grid = document.createElement('div');
       grid.className = 'sectors-grid';
-      sorted.forEach((it) => {
-        const ratio = Math.abs(it.pct) / maxAbs;
-        const sizeClass = ratio >= 0.55 ? 'sector-tile-lg' : ratio >= 0.25 ? 'sector-tile-md' : 'sector-tile-sm';
+      laidOut.forEach((t) => {
         const tile = document.createElement('div');
-        tile.className = `sector-tile ${sizeClass}`;
-        tile.style.background = pctToHeatColor(it.pct);
-        tile.innerHTML = `<div class="sector-tile-name">${escapeHtml(it.name)}</div><div class="sector-tile-pct">${it.pct >= 0 ? '+' : ''}${it.pct.toFixed(2)}%</div>`;
+        tile.className = 'sector-tile';
+        // Small tiles can't fit the normal text size without overflowing —
+        // shrink the font instead of letting it clip or wrap awkwardly.
+        if ((t.w * t.h) / totalArea < 0.05) tile.classList.add('sector-tile-tiny');
+        tile.style.gridColumn = `${t.x + 1} / ${t.x + t.w + 1}`;
+        tile.style.gridRow = `${t.y + 1} / ${t.y + t.h + 1}`;
+        tile.style.background = pctToHeatColor(t.pct);
+        tile.innerHTML = `<div class="sector-tile-name">${escapeHtml(t.name)}</div><div class="sector-tile-pct">${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(2)}%</div>`;
         grid.appendChild(tile);
       });
       body.appendChild(grid);
