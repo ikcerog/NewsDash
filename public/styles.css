@@ -629,21 +629,20 @@ body.sidebar-collapsed .sidebar-feeds-section { display: none; }
 .potd-nav-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
 .potd-nav-btn:disabled { opacity: 0.35; cursor: default; }
 
-/* Finviz-style heatmap block. Fixed aspect-ratio box with tiles positioned
-   by percentage (from layoutTreemap in app.js) — width scales with the
-   widget (1-col or double-width via the ⬌ toggle), height follows from
-   the aspect-ratio, no JS resize-observer needed. */
-.sectors-treemap {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  overflow: hidden;
+/* Finviz-style heatmap block, as a strict 3-column grid rather than a
+   free-form treemap — reads more predictably. Only .sector-tile-outlier
+   (the single biggest mover, and only when it's a genuine outlier — see
+   the sectors branch of renderWidgetInto) ever breaks the 3-col rule. */
+.sectors-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
   border-radius: 6px;
+  overflow: hidden;
 }
 .sector-tile {
-  position: absolute;
   box-sizing: border-box;
-  border: 1px solid var(--bg-widget-header);
+  min-height: 4.5rem;
   padding: 0.3rem 0.4rem;
   overflow: hidden;
   color: #fff;
@@ -652,6 +651,7 @@ body.sidebar-collapsed .sidebar-feeds-section { display: none; }
   flex-direction: column;
   justify-content: center;
 }
+.sector-tile-outlier { grid-column: span 2; }
 .sector-tile-name { font-size: 0.78rem; font-weight: 600; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sector-tile-pct { font-size: 0.85rem; font-weight: 700; margin-top: 0.15rem; }
 

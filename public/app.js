@@ -20,10 +20,17 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.9.6';
+} from './shared-config.js?v=0.9.7';
 
-const APP_VERSION = '0.9.6';
+const APP_VERSION = '0.9.7';
 const PATCH_NOTES = [
+  {
+    version: '0.9.7',
+    date: '2026-09-16',
+    notes: [
+      'Sectors heatmap: replaced the free-form treemap with a strict 3-column grid (best-to-worst order, like a leaderboard) — reads more predictably than tiles sized purely by magnitude. Only the single biggest mover can ever break the 3-col rule and span 2 columns, and only when it\'s a genuine outlier: a 3%+ move AND clearly ahead of the next-biggest mover, not just today\'s top of a bunch of similar-sized moves.',
+    ],
+  },
   {
     version: '0.9.6',
     date: '2026-09-15',
@@ -1310,41 +1317,6 @@ function polygonCentroid(geometry) {
   return { lon: sumLon / coords.length, lat: sumLat / coords.length };
 }
 
-// ---------------------------------------------------------------------------
-// Simple "slice and dice" treemap (Finviz-style heatmap block) — no charting
-// library needed for ~11 items. Not a true squarified treemap (which keeps
-// every tile close to square), just a binary recursive split: sort items
-// biggest-value-first, cut the list roughly in half by value, split the
-// current rectangle along whichever axis is longer (so it doesn't produce
-// one long sliver down the side), and recurse into each half. Coordinates
-// are 0-100 (percent of the container), so the caller can size tiles with
-// plain CSS left/top/width/height percentages.
-// ---------------------------------------------------------------------------
-function layoutTreemap(items, x = 0, y = 0, w = 100, h = 100) {
-  if (!items.length) return [];
-  if (items.length === 1) return [{ ...items[0], x, y, w, h }];
-  const total = items.reduce((sum, it) => sum + it.value, 0);
-  let running = 0;
-  let splitIndex = 1;
-  for (let i = 0; i < items.length; i++) {
-    running += items[i].value;
-    if (running >= total / 2) {
-      splitIndex = i + 1;
-      break;
-    }
-  }
-  splitIndex = Math.max(1, Math.min(items.length - 1, splitIndex));
-  const groupA = items.slice(0, splitIndex);
-  const groupB = items.slice(splitIndex);
-  const fracA = groupA.reduce((sum, it) => sum + it.value, 0) / total;
-  if (w >= h) {
-    const wA = w * fracA;
-    return [...layoutTreemap(groupA, x, y, wA, h), ...layoutTreemap(groupB, x + wA, y, w - wA, h)];
-  }
-  const hA = h * fracA;
-  return [...layoutTreemap(groupA, x, y, w, hA), ...layoutTreemap(groupB, x, y + hA, w, h - hA)];
-}
-
 // Finviz-style green/red scale, intensity scaled by magnitude (clamped at
 // +/-3% — most daily sector moves fall well inside that, so it still has
 // room to get more saturated on a genuinely big move instead of maxing out
@@ -1738,29 +1710,29 @@ async function renderWidgetInto(widget, body, { focus = false } = {}) {
     if (!okItems.length) {
       body.innerHTML = '<div class="error-state">Sector data unavailable right now.</div>';
     } else {
-      // Block size = magnitude of today's move, not market cap (we don't
-      // have sector weightings on hand) — biggest movers (up or down) get
-      // the biggest tiles, which is still the point of a heatmap: see
-      // what's moving at a glance. Sorted biggest-first so layoutTreemap
-      // produces a sensible arrangement instead of a scattered one.
-      const tiles = okItems
-        .map((it) => ({ ...it, value: Math.max(Math.abs(it.pct), 0.05) }))
-        .sort((a, b) => b.value - a.value);
-      const laidOut = layoutTreemap(tiles);
-      const map = document.createElement('div');
-      map.className = 'sectors-treemap';
-      laidOut.forEach((t) => {
+      // Best-to-worst, like a leaderboard — a strict 3-col grid reads best
+      // with a predictable order, unlike the free-form treemap this
+      // replaced. Only the single biggest mover can ever break the grid
+      // (span 2 cols instead of 1), and only when it's a genuine outlier:
+      // a big move (3%+) AND clearly ahead of the next-biggest mover, not
+      // just "today's top of a bunch of similar-sized moves."
+      const sorted = [...okItems].sort((a, b) => b.pct - a.pct);
+      const byMagnitude = [...okItems].sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
+      const top = byMagnitude[0];
+      const runnerUp = byMagnitude[1];
+      const outlierName =
+        top && Math.abs(top.pct) >= 3 && (!runnerUp || Math.abs(top.pct) >= Math.abs(runnerUp.pct) * 1.5) ? top.name : null;
+      const grid = document.createElement('div');
+      grid.className = 'sectors-grid';
+      sorted.forEach((it) => {
         const tile = document.createElement('div');
         tile.className = 'sector-tile';
-        tile.style.left = `${t.x}%`;
-        tile.style.top = `${t.y}%`;
-        tile.style.width = `${t.w}%`;
-        tile.style.height = `${t.h}%`;
-        tile.style.background = pctToHeatColor(t.pct);
-        tile.innerHTML = `<div class="sector-tile-name">${escapeHtml(t.name)}</div><div class="sector-tile-pct">${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(2)}%</div>`;
-        map.appendChild(tile);
+        if (it.name === outlierName) tile.classList.add('sector-tile-outlier');
+        tile.style.background = pctToHeatColor(it.pct);
+        tile.innerHTML = `<div class="sector-tile-name">${escapeHtml(it.name)}</div><div class="sector-tile-pct">${it.pct >= 0 ? '+' : ''}${it.pct.toFixed(2)}%</div>`;
+        grid.appendChild(tile);
       });
-      body.appendChild(map);
+      body.appendChild(grid);
       if (failedItems.length) {
         const note = document.createElement('div');
         note.className = 'meta';
