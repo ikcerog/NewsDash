@@ -20,10 +20,17 @@ import {
   YOUTUBE_CHANNELS,
   normalizeStooqSymbol,
   toYahooSymbol,
-} from './shared-config.js?v=0.9.9';
+} from './shared-config.js?v=0.9.10';
 
-const APP_VERSION = '0.9.9';
+const APP_VERSION = '0.9.10';
 const PATCH_NOTES = [
+  {
+    version: '0.9.10',
+    date: '2026-09-16',
+    notes: [
+      'Sectors heatmap: added 6 more tiles. The original 11 are the complete official GICS/S&P sectors (nothing more to add there), so the new ones are well-known industry ETFs one level more specific than a sector — Biotech, Regional Banks, Semiconductors, Retail, Oil & Gas E&P, and Aerospace & Defense.',
+    ],
+  },
   {
     version: '0.9.9',
     date: '2026-09-16',

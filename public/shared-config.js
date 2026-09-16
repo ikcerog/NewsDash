@@ -26,6 +26,8 @@ export const MARKET_GROUPS = {
   sectors: {
     label: 'Sector ETFs',
     symbols: [
+      // The 11 official GICS/S&P sectors — this is the complete set, there
+      // is no 12th sector to add.
       { sym: 'xlk.us', name: 'Technology' },
       { sym: 'xlf.us', name: 'Financials' },
       { sym: 'xle.us', name: 'Energy' },
@@ -37,6 +39,15 @@ export const MARKET_GROUPS = {
       { sym: 'xlb.us', name: 'Materials' },
       { sym: 'xli.us', name: 'Industrials' },
       { sym: 'xlc.us', name: 'Communication Svcs' },
+      // Below: well-known *industry* ETFs (one level more specific than a
+      // sector, e.g. Biotech sits inside Health Care) added for variety in
+      // the heatmap, not additional GICS sectors.
+      { sym: 'xbi.us', name: 'Biotech' },
+      { sym: 'kre.us', name: 'Regional Banks' },
+      { sym: 'smh.us', name: 'Semiconductors' },
+      { sym: 'xrt.us', name: 'Retail' },
+      { sym: 'xop.us', name: 'Oil & Gas E&P' },
+      { sym: 'ita.us', name: 'Aerospace & Defense' },
     ],
   },
   bonds: {
